@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
-package ethapi
+package vm
 
 import (
 	"encoding/json"
@@ -25,7 +25,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/robertkrimen/otto"
 )
 
@@ -36,11 +36,20 @@ type fakeBig struct{}
 func (fb *fakeBig) NewInt(x int64) *big.Int {
 	return big.NewInt(x)
 }
+func (fb *fakeBig) ToInt(x *big.Int) int64 {
+	return x.Int64()
+}
+func (fb *fakeBig) BigToAddress(b *big.Int) string {
+	return common.BytesToAddress(b.Bytes()).String()
+}
+func (fb *fakeBig) CreateContractAddress(addr string, nonce uint64) string {
+	return crypto.CreateAddress(common.HexToAddress(addr), nonce).String()
+}
 
 // OpCodeWrapper provides a JavaScript-friendly wrapper around OpCode, to convince Otto to treat it
 // as an object, instead of a number.
 type opCodeWrapper struct {
-	op vm.OpCode
+	op OpCode
 }
 
 // toNumber returns the ID of this opcode as an integer
@@ -73,9 +82,10 @@ func (ocw *opCodeWrapper) toValue(vm *otto.Otto) otto.Value {
 	return value
 }
 
+
 // memoryWrapper provides a JS wrapper around vm.Memory
 type memoryWrapper struct {
-	memory *vm.Memory
+	memory *Memory
 }
 
 // slice returns the requested range of memory as a byte slice
@@ -102,7 +112,7 @@ func (mw *memoryWrapper) toValue(vm *otto.Otto) otto.Value {
 
 // stackWrapper provides a JS wrapper around vm.Stack
 type stackWrapper struct {
-	stack *vm.Stack
+	stack *Stack
 }
 
 // peek returns the nth-from-the-top element of the stack.
@@ -126,7 +136,7 @@ func (sw *stackWrapper) toValue(vm *otto.Otto) otto.Value {
 
 // dbWrapper provides a JS wrapper around vm.Database
 type dbWrapper struct {
-	db vm.StateDB
+	db StateDB
 }
 
 // getBalance retrieves an account's balance
@@ -168,7 +178,7 @@ func (dw *dbWrapper) toValue(vm *otto.Otto) otto.Value {
 
 // contractWrapper provides a JS wrapper around vm.Contract
 type contractWrapper struct {
-	contract *vm.Contract
+	contract *Contract
 }
 
 func (c *contractWrapper) caller() common.Address {
@@ -318,7 +328,7 @@ func wrapError(context string, err error) error {
 }
 
 // CaptureState implements the Tracer interface to trace a single step of VM execution
-func (jst *JavascriptTracer) CaptureState(env *vm.EVM, pc uint64, op vm.OpCode, gas, cost uint64, memory *vm.Memory, stack *vm.Stack, contract *vm.Contract, depth int, err error) error {
+func (jst *JavascriptTracer) CaptureState(env *EVM, pc uint64, op OpCode, gas, cost uint64, memory *Memory, stack *Stack, contract *Contract, depth int, err error) error {
 	if jst.err == nil {
 		jst.op.op = op
 		jst.memory.memory = memory

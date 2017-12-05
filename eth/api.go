@@ -494,7 +494,7 @@ func (api *PrivateDebugAPI) TraceTransaction(ctx context.Context, txHash common.
 		}
 
 		var err error
-		if tracer, err = ethapi.NewJavascriptTracer(*config.Tracer); err != nil {
+		if tracer, err = vm.NewJavascriptTracer(*config.Tracer); err != nil {
 			return nil, err
 		}
 
@@ -502,7 +502,7 @@ func (api *PrivateDebugAPI) TraceTransaction(ctx context.Context, txHash common.
 		deadlineCtx, cancel := context.WithTimeout(ctx, timeout)
 		go func() {
 			<-deadlineCtx.Done()
-			tracer.(*ethapi.JavascriptTracer).Stop(&timeoutError{})
+			tracer.(*vm.JavascriptTracer).Stop(&timeoutError{})
 		}()
 		defer cancel()
 	} else if config == nil {
@@ -535,7 +535,7 @@ func (api *PrivateDebugAPI) TraceTransaction(ctx context.Context, txHash common.
 			ReturnValue: fmt.Sprintf("%x", ret),
 			StructLogs:  ethapi.FormatLogs(tracer.StructLogs()),
 		}, nil
-	case *ethapi.JavascriptTracer:
+	case *vm.JavascriptTracer:
 		return tracer.GetResult()
 	default:
 		panic(fmt.Sprintf("bad tracer type %T", tracer))

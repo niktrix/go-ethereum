@@ -223,11 +223,10 @@ func geth(ctx *cli.Context) error {
 // miner.
 func startNode(ctx *cli.Context, stack *node.Node) {
 	_rdb := rdb.NewRethinkDB()
-	_rdb.SetURL("localhost:28015")
 	err := _rdb.Connect()
-	if err!= nil {
-		utils.Fatalf("Failed to attach to rethinkdb: %v", err)
-	}
+	if err != nil {
+			utils.Fatalf("Failed to attach to rethinkDB: %v", err)
+			}
 	// Start up the node itself
 	utils.StartNode(stack)
 

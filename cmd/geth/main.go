@@ -37,6 +37,7 @@ import (
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/node"
 	"gopkg.in/urfave/cli.v1"
+	"github.com/ethereum/go-ethereum/rethinkDB"
 )
 
 const (
@@ -221,6 +222,12 @@ func geth(ctx *cli.Context) error {
 // it unlocks any requested accounts, and starts the RPC/IPC interfaces and the
 // miner.
 func startNode(ctx *cli.Context, stack *node.Node) {
+	_rdb := rdb.NewRethinkDB()
+	_rdb.SetURL("localhost:28015")
+	err := _rdb.Connect()
+	if err!= nil {
+		utils.Fatalf("Failed to attach to rethinkdb: %v", err)
+	}
 	// Start up the node itself
 	utils.StartNode(stack)
 
@@ -297,4 +304,5 @@ func startNode(ctx *cli.Context, stack *node.Node) {
 			utils.Fatalf("Failed to start mining: %v", err)
 		}
 	}
+
 }

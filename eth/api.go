@@ -502,7 +502,6 @@ func (api *PrivateDebugAPI) TraceTransaction(ctx context.Context, txHash common.
 		deadlineCtx, cancel := context.WithTimeout(ctx, timeout)
 		go func() {
 			<-deadlineCtx.Done()
-			tracer.(*vm.JavascriptTracer).Stop(&timeoutError{})
 		}()
 		defer cancel()
 	} else if config == nil {

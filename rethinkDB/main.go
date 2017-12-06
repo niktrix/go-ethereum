@@ -25,6 +25,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	_"math/big"
 	"math/big"
+	"github.com/ethereum/go-ethereum/core/state"
 )
 
 type Rconn struct {
@@ -47,29 +48,36 @@ func (rdb *Rconn) Connect() error {
 
 
 
-func (rdb *Rconn) InsertBlock(block *types.Block, prevTd *big.Int) {
-	head := block.Header() // copies the header once
-	fields := map[string]interface{}{
-		"id": 				block.Hash().String(),
-		"number":           hexutil.Uint64(block.Number().Uint64()),
-		"hash":             block.Hash(),
-		"parentHash":       head.ParentHash,
-		"nonce":            head.Nonce,
-		"mixHash":          head.MixDigest,
-		"sha3Uncles":       head.UncleHash,
-		"logsBloom":        head.Bloom,
-		"stateRoot":        head.Root,
-		"miner":            head.Coinbase,
-		"difficulty":       hexutil.Uint64(block.Difficulty().Uint64()),
-		"totalDifficulty": (*hexutil.Big)(new(big.Int).Add(block.Difficulty(), prevTd)).String(),
-		"extraData":        hexutil.Bytes(head.Extra),
-		"size":             hexutil.Uint64(uint64(block.Size().Int64())),
-		"gasLimit":         hexutil.Uint64(block.GasLimit().Uint64()),
-		"gasUsed":          hexutil.Uint64(block.GasUsed().Uint64()),
-		"timestamp":        hexutil.Uint64(block.Time().Uint64()),
-		"transactionsRoot": head.TxHash,
-		"receiptsRoot":     head.ReceiptHash,
+func (rdb *Rconn) InsertBlock(block *types.Block, state *state.StateDB, prevTd *big.Int) {//prevTd *big.Int) {
+	formatBlock := func(b *types.Block) (map[string]interface{}, error) {
+		head := b.Header() // copies the header once
+		minerBalance := state.GetBalance(head.Coinbase)
+		bfields := map[string]interface{}{
+			"id": 				block.Hash().String(),
+			"number":           head.Number.String(),
+			"intNumber":        hexutil.Uint64(head.Number.Uint64()),
+			"hash":             b.Hash().String(),
+			"parentHash":       head.ParentHash.String(),
+			"nonce":            hexutil.Uint64(head.Nonce.Uint64()).String(),
+			"mixHash":          head.MixDigest.String(),
+			"sha3Uncles":       head.UncleHash.String(),
+			"logsBloom":        hexutil.Bytes(head.Bloom.Bytes()).String(),
+			"stateRoot":        head.Root.String(),
+			"miner":            head.Coinbase.String(),
+			"minerBalance":     (*hexutil.Big)(minerBalance).String(),
+			"difficulty":       (*hexutil.Big)(head.Difficulty).String(),
+			"totalDifficulty":  (*hexutil.Big)(new(big.Int).Add(block.Difficulty(), prevTd)).String(),
+			"extraData":        hexutil.Bytes(head.Extra).String(),
+			"size":             hexutil.Uint64(uint64(b.Size().Int64())).String(),
+			"gasLimit":         (*hexutil.Big)(head.GasLimit).String(),
+			"gasUsed":          (*hexutil.Big)(head.GasUsed).String(),
+			"timestamp":        (*hexutil.Big)(head.Time).String(),
+			"transactionsRoot": head.TxHash.String(),
+			"receiptsRoot":     head.ReceiptHash.String(),
+		}
+		return bfields, nil
 	}
+	fields,_ := formatBlock(block)
 	resp, err := r.DB("eth_mainnet").Table("blocks").Insert(fields).RunWrite(rdb.session)
 	if err != nil {
 		fmt.Print(err)

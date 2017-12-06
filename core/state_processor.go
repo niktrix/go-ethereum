@@ -74,7 +74,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		if err != nil {
 				log.Error("Connection error", err)
 				}
-	_rdb.InsertBlock(block, p.bc.GetTd(block.ParentHash(), block.NumberU64()-1))
+	_rdb.InsertBlock(block, statedb, p.bc.GetTd(block.ParentHash(), block.NumberU64()-1))
 	// Iterate over and process the individual transactions
 	for i, tx := range block.Transactions() {
 		statedb.Prepare(tx.Hash(), block.Hash(), i)

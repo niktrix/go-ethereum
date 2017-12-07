@@ -38,6 +38,7 @@ type BlockIn struct {
 	PrevTd *big.Int
 	Receipts types.Receipts
 	Signer types.Signer
+	IsUncle bool
 }
 
 func (rdb *Rconn) SetURL(url string) {
@@ -140,10 +141,10 @@ func (rdb *Rconn) InsertBlock(blockIn *BlockIn) {
 		head := block.Header() // copies the header once
 		minerBalance := blockIn.State.GetBalance(head.Coinbase)
 		bfields := map[string]interface{}{
-			"id": 				block.Hash().String(),
-			"number":           head.Number.String(),
+			"id": 				head.Hash().String(),
+			"number":           hexutil.Uint64(head.Number.Uint64()).String(),
 			"intNumber":        hexutil.Uint64(head.Number.Uint64()),
-			"hash":             block.Hash().String(),
+			"hash":             head.Hash().String(),
 			"parentHash":       head.ParentHash.String(),
 			"nonce":            hexutil.Uint64(head.Nonce.Uint64()).String(),
 			"mixHash":          head.MixDigest.String(),
@@ -153,7 +154,12 @@ func (rdb *Rconn) InsertBlock(blockIn *BlockIn) {
 			"miner":            head.Coinbase.String(),
 			"minerBalance":     (*hexutil.Big)(minerBalance).String(),
 			"difficulty":       (*hexutil.Big)(head.Difficulty).String(),
-			"totalDifficulty":  (*hexutil.Big)(new(big.Int).Add(block.Difficulty(), blockIn.PrevTd)).String(),
+			"totalDifficulty":  func() string {
+									if blockIn.PrevTd==nil {
+										return string("")
+									}
+									return (*hexutil.Big)(new(big.Int).Add(block.Difficulty(), blockIn.PrevTd)).String()
+								}(),
 			"extraData":        hexutil.Bytes(head.Extra).String(),
 			"size":             hexutil.Uint64(uint64(block.Size().Int64())).String(),
 			"gasLimit":         (*hexutil.Big)(head.GasLimit).String(),
@@ -162,17 +168,33 @@ func (rdb *Rconn) InsertBlock(blockIn *BlockIn) {
 			"transactionsRoot": head.TxHash.String(),
 			"receiptsRoot":     head.ReceiptHash.String(),
 			"transactions": 	processTxs(block.Transactions()),
+			"uncles":			func() []string {
+									uncles:= make([]string, len(block.Uncles()))
+									for i, uncle:= range block.Uncles() {
+										uncles[i] = uncle.Hash().String()
+										rdb.InsertBlock(&BlockIn{
+											Block:types.NewBlockWithHeader(uncle),
+											State:blockIn.State,
+											IsUncle: true,
+
+										})
+										fmt.Printf("New Uncle block %s \n", uncle.Hash().String())
+									}
+									return uncles
+								}(),
+			"isUncle":			 blockIn.IsUncle,
 		}
-		var _ BlockIn
 		return bfields, nil
 	}
 	fields,_ := formatBlock(blockIn.Block)
-	resp, err := r.DB("eth_mainnet").Table("blocks").Insert(fields).RunWrite(rdb.session)
+	_, err := r.DB("eth_mainnet").Table("blocks").Insert(fields,r.InsertOpts{
+		Conflict: "replace",
+	}).RunWrite(rdb.session)
 	if err != nil {
 		fmt.Print(err)
 		return
 	}
-	fmt.Printf("%d row inserted %d", resp)
+	//fmt.Printf("%d row inserted %d", resp)
 }
 
 func NewRethinkDB ()(*Rconn) {

@@ -90,6 +90,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		PrevTd: p.bc.GetTd(block.ParentHash(), block.NumberU64()-1),
 		Receipts: receipts,
 		Signer: types.MakeSigner(p.bc.config, block.Header().Number),
+		IsUncle: false,
 	})
 	// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
 	p.engine.Finalize(p.bc, header, statedb, block.Transactions(), block.Uncles(), receipts)

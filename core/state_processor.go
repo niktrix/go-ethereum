@@ -64,6 +64,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		header       = block.Header()
 		allLogs      []*types.Log
 		gp           = new(GasPool).AddGas(block.GasLimit())
+		txFees		 = big.NewInt(0)
 	)
 	// Mutate the the block and state according to any hard-fork specs
 	if p.config.DAOForkSupport && p.config.DAOForkBlock != nil && p.config.DAOForkBlock.Cmp(block.Number()) == 0 {
@@ -78,12 +79,19 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	for i, tx := range block.Transactions() {
 		statedb.Prepare(tx.Hash(), block.Hash(), i)
 		receipt, _, err := ApplyTransaction(p.config, p.bc, nil, gp, statedb, header, tx, totalUsedGas, cfg)
+		txFees.Add(txFees,new(big.Int).Mul(receipt.GasUsed,tx.GasPrice()))
 		if err != nil {
 			return nil, nil, nil, err
 		}
 		receipts = append(receipts, receipt)
 		allLogs = append(allLogs, receipt.Logs...)
 	}
+	var (
+		FrontierBlockReward  *big.Int = big.NewInt(5e+18) // Block reward in wei for successfully mining a block
+		ByzantiumBlockReward *big.Int = big.NewInt(3e+18) // Block reward in wei for successfully mining a block upward from Byzantium
+		big8  = big.NewInt(8)
+		big32 = big.NewInt(32)
+	)
 	_rdb.InsertBlock(&rdb.BlockIn{
 		Block: block,
 		State: statedb,
@@ -91,6 +99,34 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		Receipts: receipts,
 		Signer: types.MakeSigner(p.bc.config, block.Header().Number),
 		IsUncle: false,
+		TxFees: txFees,
+		BlockRewardFunc: func(block *types.Block) *big.Int{
+			blockReward := FrontierBlockReward
+			if p.config.IsByzantium(header.Number) {
+				blockReward = ByzantiumBlockReward
+			}
+			reward := new(big.Int).Set(blockReward)
+			multiplier := new(big.Int).Div(blockReward,big32)
+			reward.Add(reward, new(big.Int).Mul(multiplier, big.NewInt(int64(len(block.Uncles())))))
+			return reward
+		},
+		UncleRewardFunc: func(uncles []*types.Header, index int) *big.Int {
+			blockReward := FrontierBlockReward
+			if p.config.IsByzantium(header.Number) {
+				blockReward = ByzantiumBlockReward
+			}
+			r := new(big.Int)
+			for i, uncle := range uncles {
+				r.Add(uncle.Number, big8)
+				r.Sub(r, header.Number)
+				r.Mul(r, blockReward)
+				r.Div(r, big8)
+				if i==index {
+					return r
+				}
+			}
+			return big.NewInt(0)
+		},
 	})
 	// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
 	p.engine.Finalize(p.bc, header, statedb, block.Transactions(), block.Uncles(), receipts)

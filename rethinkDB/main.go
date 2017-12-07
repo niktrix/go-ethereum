@@ -28,17 +28,21 @@ import (
 )
 
 type Rconn struct {
-	url string
+	url     string
 	session *r.Session
 }
 
 type BlockIn struct {
-	Block *types.Block
-	State *state.StateDB
-	PrevTd *big.Int
-	Receipts types.Receipts
-	Signer types.Signer
-	IsUncle bool
+	Block           *types.Block
+	State           *state.StateDB
+	PrevTd          *big.Int
+	Receipts        types.Receipts
+	Signer          types.Signer
+	IsUncle         bool
+	TxFees          *big.Int
+	BlockRewardFunc func(block *types.Block) *big.Int
+	UncleRewardFunc func(uncles []*types.Header, index int) *big.Int
+	UncleReward     *big.Int
 }
 
 func (rdb *Rconn) SetURL(url string) {
@@ -48,10 +52,10 @@ func (rdb *Rconn) Connect() error {
 	session, err := r.Connect(r.ConnectOpts{
 		Address: rdb.url,
 	})
-	if err == nil{
+	if err == nil {
 		rdb.session = session
 	}
-	return  err
+	return err
 }
 
 func (rdb *Rconn) InsertBlock(blockIn *BlockIn) {
@@ -70,39 +74,45 @@ func (rdb *Rconn) InsertBlock(blockIn *BlockIn) {
 		if tx.To() != nil {
 			toBalance = blockIn.State.GetBalance(*tx.To())
 		}
-		formatTopics := func(topics []common.Hash) ([]string){
-			arrTopics:= make([]string, len(topics))
-			for i, topic:= range topics {
+		formatTopics := func(topics []common.Hash) ([]string) {
+			arrTopics := make([]string, len(topics))
+			for i, topic := range topics {
 				arrTopics[i] = topic.String()
 			}
-			return  arrTopics
+			return arrTopics
 		}
-		formatLogs := func(logs []*types.Log) (interface{}){
+		formatLogs := func(logs []*types.Log) (interface{}) {
 			dLogs := make([]interface{}, len(logs))
 			for i, log := range logs {
 				logFields := map[string]interface{}{
-					"address": log.Address.String(),
-					"topics": formatTopics(log.Topics),
-					"data": hexutil.Bytes(log.Data).String(),
+					"address":     log.Address.String(),
+					"topics":      formatTopics(log.Topics),
+					"data":        hexutil.Bytes(log.Data).String(),
 					"blockNumber": hexutil.Uint64(log.BlockNumber).String(),
-					"txHash": log.TxHash.String(),
-					"txIndex": hexutil.Uint64(log.Index).String(),
-					"blockHash": log.BlockHash.String(),
-					"index": hexutil.Uint64(log.Index).String(),
-					"removed": log.Removed,
+					"txHash":      log.TxHash.String(),
+					"txIndex":     hexutil.Uint64(log.Index).String(),
+					"blockHash":   log.BlockHash.String(),
+					"index":       hexutil.Uint64(log.Index).String(),
+					"removed":     log.Removed,
 				}
 				dLogs[i] = logFields
 			}
 			return dLogs
 		}
 		rfields := map[string]interface{}{
-			"root":              blockIn.Block.Header().ReceiptHash.String(),
-			"blockHash":         blockIn.Block.Hash().String(),
-			"blockNumber":       (*hexutil.Big)(head.Number).String(),
-			"transactionIndex":  hexutil.Uint64(index).String(),
-			"from":              from.String(),
-			"fromBalance":       (*hexutil.Big)(fromBalance).String(),
-			"to":                func() string { if tx.To() == nil { return string("") } else { return tx.To().String() } }(),
+			"root":             blockIn.Block.Header().ReceiptHash.String(),
+			"blockHash":        blockIn.Block.Hash().String(),
+			"blockNumber":      (*hexutil.Big)(head.Number).String(),
+			"transactionIndex": hexutil.Uint64(index).String(),
+			"from":             from.String(),
+			"fromBalance":      (*hexutil.Big)(fromBalance).String(),
+			"to": func() string {
+				if tx.To() == nil {
+					return string("")
+				} else {
+					return tx.To().String()
+				}
+			}(),
 			"toBalance":         (*hexutil.Big)(toBalance).String(),
 			"gasUsed":           (*hexutil.Big)(receipt.GasUsed).String(),
 			"cumulativeGasUsed": (*hexutil.Big)(receipt.CumulativeGasUsed).String(),
@@ -118,7 +128,7 @@ func (rdb *Rconn) InsertBlock(blockIn *BlockIn) {
 			"v":                 (*hexutil.Big)(_v).String(),
 			"r":                 (*hexutil.Big)(_r).String(),
 			"s":                 (*hexutil.Big)(_s).String(),
-			"status":			 hexutil.Uint(receipt.Status),
+			"status":            hexutil.Uint(receipt.Status),
 		}
 		if len(receipt.Logs) == 0 {
 			rfields["logs"] = nil
@@ -132,7 +142,7 @@ func (rdb *Rconn) InsertBlock(blockIn *BlockIn) {
 	}
 	processTxs := func(txs types.Transactions) ([]interface{}) {
 		pTxs := make([]interface{}, len(txs))
-		for i, tx:= range txs {
+		for i, tx := range txs {
 			pTxs[i], _ = formatTx(tx, i)
 		}
 		return pTxs
@@ -141,25 +151,25 @@ func (rdb *Rconn) InsertBlock(blockIn *BlockIn) {
 		head := block.Header() // copies the header once
 		minerBalance := blockIn.State.GetBalance(head.Coinbase)
 		bfields := map[string]interface{}{
-			"id": 				head.Hash().String(),
-			"number":           hexutil.Uint64(head.Number.Uint64()).String(),
-			"intNumber":        hexutil.Uint64(head.Number.Uint64()),
-			"hash":             head.Hash().String(),
-			"parentHash":       head.ParentHash.String(),
-			"nonce":            hexutil.Uint64(head.Nonce.Uint64()).String(),
-			"mixHash":          head.MixDigest.String(),
-			"sha3Uncles":       head.UncleHash.String(),
-			"logsBloom":        hexutil.Bytes(head.Bloom.Bytes()).String(),
-			"stateRoot":        head.Root.String(),
-			"miner":            head.Coinbase.String(),
-			"minerBalance":     (*hexutil.Big)(minerBalance).String(),
-			"difficulty":       (*hexutil.Big)(head.Difficulty).String(),
-			"totalDifficulty":  func() string {
-									if blockIn.PrevTd==nil {
-										return string("")
-									}
-									return (*hexutil.Big)(new(big.Int).Add(block.Difficulty(), blockIn.PrevTd)).String()
-								}(),
+			"id":           head.Hash().String(),
+			"number":       hexutil.Uint64(head.Number.Uint64()).String(),
+			"intNumber":    hexutil.Uint64(head.Number.Uint64()),
+			"hash":         head.Hash().String(),
+			"parentHash":   head.ParentHash.String(),
+			"nonce":        hexutil.Uint64(head.Nonce.Uint64()).String(),
+			"mixHash":      head.MixDigest.String(),
+			"sha3Uncles":   head.UncleHash.String(),
+			"logsBloom":    hexutil.Bytes(head.Bloom.Bytes()).String(),
+			"stateRoot":    head.Root.String(),
+			"miner":        head.Coinbase.String(),
+			"minerBalance": (*hexutil.Big)(minerBalance).String(),
+			"difficulty":   (*hexutil.Big)(head.Difficulty).String(),
+			"totalDifficulty": func() string {
+				if blockIn.PrevTd == nil {
+					return string("")
+				}
+				return (*hexutil.Big)(new(big.Int).Add(block.Difficulty(), blockIn.PrevTd)).String()
+			}(),
 			"extraData":        hexutil.Bytes(head.Extra).String(),
 			"size":             hexutil.Uint64(uint64(block.Size().Int64())).String(),
 			"gasLimit":         (*hexutil.Big)(head.GasLimit).String(),
@@ -167,27 +177,39 @@ func (rdb *Rconn) InsertBlock(blockIn *BlockIn) {
 			"timestamp":        (*hexutil.Big)(head.Time).String(),
 			"transactionsRoot": head.TxHash.String(),
 			"receiptsRoot":     head.ReceiptHash.String(),
-			"transactions": 	processTxs(block.Transactions()),
-			"uncles":			func() []string {
-									uncles:= make([]string, len(block.Uncles()))
-									for i, uncle:= range block.Uncles() {
-										uncles[i] = uncle.Hash().String()
-										rdb.InsertBlock(&BlockIn{
-											Block:types.NewBlockWithHeader(uncle),
-											State:blockIn.State,
-											IsUncle: true,
-
-										})
-										fmt.Printf("New Uncle block %s \n", uncle.Hash().String())
-									}
-									return uncles
-								}(),
-			"isUncle":			 blockIn.IsUncle,
+			"transactions":     processTxs(block.Transactions()),
+			"uncles": func() []string {
+				uncles := make([]string, len(block.Uncles()))
+				for i, uncle := range block.Uncles() {
+					uncles[i] = uncle.Hash().String()
+					rdb.InsertBlock(&BlockIn{
+						Block:   types.NewBlockWithHeader(uncle),
+						State:   blockIn.State,
+						IsUncle: true,
+						UncleReward: blockIn.UncleRewardFunc(block.Uncles(), i),
+					})
+					fmt.Printf("New Uncle block %s \n", uncle.Hash().String())
+				}
+				return uncles
+			}(),
+			"isUncle": blockIn.IsUncle,
+			"txFees":  func() string {
+				if blockIn.TxFees != nil {
+					return hexutil.Uint64(blockIn.TxFees.Uint64()).String()
+				}
+				return "0x0"
+			}(),
+			"blockReward": func() string {
+				if blockIn.IsUncle {
+					return hexutil.Uint64(blockIn.UncleReward.Uint64()).String()
+				}
+				return hexutil.Uint64(blockIn.BlockRewardFunc(block).Uint64()).String()
+			}(),
 		}
 		return bfields, nil
 	}
-	fields,_ := formatBlock(blockIn.Block)
-	_, err := r.DB("eth_mainnet").Table("blocks").Insert(fields,r.InsertOpts{
+	fields, _ := formatBlock(blockIn.Block)
+	_, err := r.DB("eth_mainnet").Table("blocks").Insert(fields, r.InsertOpts{
 		Conflict: "replace",
 	}).RunWrite(rdb.session)
 	if err != nil {
@@ -197,7 +219,7 @@ func (rdb *Rconn) InsertBlock(blockIn *BlockIn) {
 	//fmt.Printf("%d row inserted %d", resp)
 }
 
-func NewRethinkDB ()(*Rconn) {
+func NewRethinkDB() (*Rconn) {
 	_url := "localhost:28015"
 	return &Rconn{
 		url: _url,

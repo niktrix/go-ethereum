@@ -3,12 +3,6 @@
 	"ignore": "test",
 	"package": [
 		{
-			"checksumSHA1": "",
-			"path": "gopkg.in/gorethink/gorethink.v3",
-			"revision": "7f5bdfd858bb064d80559b2a32b86669c5de5d3b",
-			"revisionTime": ""
-		},
-		{
 			"checksumSHA1": "b5bkSc2hlmUV7PlLY6JlLwiJpiE=",
 			"path": "bazil.org/fuse",
 			"revision": "371fbbdaa8987b715bdd21d6adc4c9b20155f748",
@@ -61,6 +55,12 @@
 			"path": "github.com/btcsuite/btcd/btcec",
 			"revision": "d06c0bb181529331be8f8d9350288c420d9e60e4",
 			"revisionTime": "2017-02-01T21:25:25Z"
+		},
+		{
+			"checksumSHA1": "hTThB1Cw2ue02RD5Oig4eu1Dkzk=",
+			"path": "github.com/cenkalti/backoff",
+			"revision": "309aa717adbf351e92864cbedf9cca0b769a4b5a",
+			"revisionTime": "2017-10-07T11:45:50Z"
 		},
 		{
 			"checksumSHA1": "cDMtzKmdTx4CcIpP4broa+16X9g=",
@@ -127,6 +127,12 @@
 			"path": "github.com/golang/snappy",
 			"revision": "553a641470496b2327abcac10b36396bd98e45c9",
 			"revisionTime": "2017-02-15T23:32:05Z"
+		},
+		{
+			"checksumSHA1": "O0r0hj4YL+jSRNjnshkeH4GY+4s=",
+			"path": "github.com/hailocab/go-hostpool",
+			"revision": "e80d13ce29ede4452c43dea11e79b9bc8a15b478",
+			"revisionTime": "2016-01-25T11:53:50Z"
 		},
 		{
 			"checksumSHA1": "d9PxF1XQGLMJZRct2R8qVM/eYlE=",
@@ -350,6 +356,12 @@
 			"path": "github.com/rs/xhandler",
 			"revision": "ed27b6fd65218132ee50cd95f38474a3d8a2cd12",
 			"revisionTime": "2016-06-18T19:32:21Z"
+		},
+		{
+			"checksumSHA1": "ySaT8G3I3y4MmnoXOYAAX0rC+p8=",
+			"path": "github.com/sirupsen/logrus",
+			"revision": "d682213848ed68c0a260ca37d6dd5ace8423f5ba",
+			"revisionTime": "2017-12-05T20:32:29Z"
 		},
 		{
 			"checksumSHA1": "mGbTYZ8dHVTiPTTJu3ktp+84pPI=",
@@ -682,10 +694,40 @@
 			"revisionTime": "2016-12-08T18:13:25Z"
 		},
 		{
+			"checksumSHA1": "P8yR+xObqoPUA4fcLFV2eGNNSWc=",
+			"path": "gopkg.in/fatih/pool.v2",
+			"revision": "010e0b745d12eaf8426c95f9c3924d81dd0b668f",
+			"revisionTime": "2017-10-10T08:14:17Z"
+		},
+		{
 			"checksumSHA1": "NGg7/qIJVUfXi7xnEyyDLocdi6Y=",
 			"path": "gopkg.in/fatih/set.v0",
 			"revision": "27c40922c40b43fe04554d8223a402af3ea333f3",
 			"revisionTime": "2014-12-10T08:48:24Z"
+		},
+		{
+			"checksumSHA1": "BHGg/qtOLaMJt9tNO8pF3FE187I=",
+			"path": "gopkg.in/gorethink/gorethink.v3",
+			"revision": "7f5bdfd858bb064d80559b2a32b86669c5de5d3b",
+			"revisionTime": "2017-09-28T17:27:53Z"
+		},
+		{
+			"checksumSHA1": "yjQTriVMAzKdR8CKhDFQMbgrFvg=",
+			"path": "gopkg.in/gorethink/gorethink.v3/encoding",
+			"revision": "7f5bdfd858bb064d80559b2a32b86669c5de5d3b",
+			"revisionTime": "2017-09-28T17:27:53Z"
+		},
+		{
+			"checksumSHA1": "aWKVb1QHxeor0el0wybSLEd4pBc=",
+			"path": "gopkg.in/gorethink/gorethink.v3/ql2",
+			"revision": "7f5bdfd858bb064d80559b2a32b86669c5de5d3b",
+			"revisionTime": "2017-09-28T17:27:53Z"
+		},
+		{
+			"checksumSHA1": "E5k29XlUCWLvucxkOimNHtozB7g=",
+			"path": "gopkg.in/gorethink/gorethink.v3/types",
+			"revision": "7f5bdfd858bb064d80559b2a32b86669c5de5d3b",
+			"revisionTime": "2017-09-28T17:27:53Z"
 		},
 		{
 			"checksumSHA1": "DQXNV0EivoHm4q+bkdahYXrjjfE=",
@@ -718,5 +760,5 @@
 			"revisionTime": "2017-08-11T01:42:03Z"
 		}
 	],
-	"rootPath": "github.com/ethereum/go-ethereum"
+	"rootPath": "go-ethereum"
 }

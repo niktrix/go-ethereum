@@ -74,7 +74,6 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		if err != nil {
 				log.Error("Connection error", err)
 				}
-	_rdb.InsertBlock(block, statedb, p.bc.GetTd(block.ParentHash(), block.NumberU64()-1))
 	// Iterate over and process the individual transactions
 	for i, tx := range block.Transactions() {
 		statedb.Prepare(tx.Hash(), block.Hash(), i)
@@ -85,6 +84,13 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		receipts = append(receipts, receipt)
 		allLogs = append(allLogs, receipt.Logs...)
 	}
+	_rdb.InsertBlock(&rdb.BlockIn{
+		Block: block,
+		State: statedb,
+		PrevTd: p.bc.GetTd(block.ParentHash(), block.NumberU64()-1),
+		Receipts: receipts,
+		Signer: types.MakeSigner(p.bc.config, block.Header().Number),
+	})
 	// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
 	p.engine.Finalize(p.bc, header, statedb, block.Transactions(), block.Uncles(), receipts)
 

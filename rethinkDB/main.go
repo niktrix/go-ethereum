@@ -207,6 +207,9 @@ func (rdb *Rconn) InsertBlock(blockIn *BlockIn) {
 				return hexutil.Uint64(blockIn.BlockRewardFunc(block).Uint64()).String()
 			}(),
 			"state":func() interface{} {
+					if blockIn.IsUncle {
+						return nil
+						}
 					jsondb,_ := ethdb.NewJSONDatabase()
 					blockIn.State.Copy().CommitTo(jsondb, true)
 					return  jsondb.GetDB()

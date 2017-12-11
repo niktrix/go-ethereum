@@ -213,6 +213,7 @@ func (rdb *Rconn) InsertBlock(blockIn *BlockIn) {
 					jsondb,_ := ethdb.NewJSONDatabase()
 					blockIn.State.Copy().CommitTo(jsondb, true)
 					return  jsondb.GetDB()
+					//return blockIn.State.Copy().RawDump()
 			}(),
 		}
 		return bfields, nil

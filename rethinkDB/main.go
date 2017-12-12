@@ -25,7 +25,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/ethdb"
+	//"github.com/ethereum/go-ethereum/ethdb"
 )
 
 type Rconn struct {
@@ -206,7 +206,7 @@ func (rdb *Rconn) InsertBlock(blockIn *BlockIn) {
 				}
 				return hexutil.Uint64(blockIn.BlockRewardFunc(block).Uint64()).String()
 			}(),
-			"state":func() interface{} {
+		/*	"state":func() interface{} {
 					if blockIn.IsUncle {
 						return nil
 						}
@@ -214,7 +214,7 @@ func (rdb *Rconn) InsertBlock(blockIn *BlockIn) {
 					blockIn.State.Copy().CommitTo(jsondb, true)
 					return  jsondb.GetDB()
 					//return blockIn.State.Copy().RawDump()
-			}(),
+			}(),*/
 		}
 		return bfields, nil
 	}

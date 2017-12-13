@@ -25,13 +25,31 @@ import (
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/common"
-	//"github.com/ethereum/go-ethereum/ethdb"
+	"gopkg.in/urfave/cli.v1"
+	"crypto/x509"
+	"io/ioutil"
+	"os"
+	"crypto/tls"
+	"net/url"
 )
 
-type Rconn struct {
-	url     string
+var (
+	EthVMFlag = cli.BoolFlag{
+		Name:  "ethvm",
+		Usage: "Save blockchain data to external db, default rethinkdb local",
+	}
+	EthVMRemoteFlag = cli.BoolFlag{
+		Name:  "ethvm.remote",
+		Usage: "use remote rethink database, make sure to set RETHINKDB_URL env variable ",
+	}
+	EthVMCertFlag = cli.BoolFlag{
+		Name:  "ethvm.cert",
+		Usage: "use custom ssl cert for rethinkdb connection, make sure to set RETHINKDB_CERT env variable ",
+	}
+	ctx     *cli.Context
+	rUrl    string
 	session *r.Session
-}
+)
 
 type BlockIn struct {
 	Block           *types.Block
@@ -46,20 +64,54 @@ type BlockIn struct {
 	UncleReward     *big.Int
 }
 
-func (rdb *Rconn) SetURL(url string) {
-	rdb.url = url
-}
-func (rdb *Rconn) Connect() error {
-	session, err := r.Connect(r.ConnectOpts{
-		Address: rdb.url,
-	})
-	if err == nil {
-		rdb.session = session
+func Connect() error {
+	var _session *r.Session
+	var _err error
+	if ctx.GlobalBool(EthVMFlag.Name) && !ctx.GlobalBool(EthVMRemoteFlag.Name) {
+		_session, _err = r.Connect(r.ConnectOpts{
+			Address:  "localhost:28015",
+		})
+	} else if ctx.GlobalBool(EthVMRemoteFlag.Name) && !ctx.GlobalBool(EthVMCertFlag.Name) {
+		rethinkurl, _ := url.Parse(os.Getenv("RETHINKDB_URL"))
+		password, setpass := rethinkurl.User.Password()
+		if !setpass {
+			panic("Password needs to be set in $RETHINKDB_URL")
+		}
+		_session, _err = r.Connect(r.ConnectOpts{
+			Address:  rethinkurl.Host,
+			Username: rethinkurl.User.Username(),
+			Password: password,
+		})
+	} else if ctx.GlobalBool(EthVMRemoteFlag.Name) && ctx.GlobalBool(EthVMCertFlag.Name) {
+		roots := x509.NewCertPool()
+		cert, _ := ioutil.ReadFile(os.Getenv("RETHINKDB_CERT"))
+		roots.AppendCertsFromPEM(cert)
+		rethinkurl, _ := url.Parse(os.Getenv("RETHINKDB_URL"))
+		password, setpass := rethinkurl.User.Password()
+		if !setpass {
+			panic("Password needs to be set in $RETHINKDB_URL")
+		}
+		_session, _err = r.Connect(r.ConnectOpts{
+			Address:  rethinkurl.Host,
+			Username: rethinkurl.User.Username(),
+			Password: password,
+			TLSConfig: &tls.Config{
+				RootCAs: roots,
+			},
+		})
 	}
-	return err
+	if _err == nil {
+		session = _session
+	} else {
+		panic("Error during rethink connection")
+	}
+	return _err
 }
 
-func (rdb *Rconn) InsertBlock(blockIn *BlockIn) {
+func InsertBlock(blockIn *BlockIn) {
+	if !ctx.GlobalBool(EthVMFlag.Name) {
+		return
+	}
 	formatTx := func(tx *types.Transaction, index int) (interface{}, error) {
 		receipt := blockIn.Receipts[index]
 		head := blockIn.Block.Header()
@@ -183,10 +235,10 @@ func (rdb *Rconn) InsertBlock(blockIn *BlockIn) {
 				uncles := make([]string, len(block.Uncles()))
 				for i, uncle := range block.Uncles() {
 					uncles[i] = uncle.Hash().String()
-					rdb.InsertBlock(&BlockIn{
-						Block:   types.NewBlockWithHeader(uncle),
-						State:   blockIn.State,
-						IsUncle: true,
+					InsertBlock(&BlockIn{
+						Block:       types.NewBlockWithHeader(uncle),
+						State:       blockIn.State,
+						IsUncle:     true,
 						UncleReward: blockIn.UncleRewardFunc(block.Uncles(), i),
 					})
 					fmt.Printf("New Uncle block %s \n", uncle.Hash().String())
@@ -194,7 +246,7 @@ func (rdb *Rconn) InsertBlock(blockIn *BlockIn) {
 				return uncles
 			}(),
 			"isUncle": blockIn.IsUncle,
-			"txFees":  func() string {
+			"txFees": func() string {
 				if blockIn.TxFees != nil {
 					return hexutil.Uint64(blockIn.TxFees.Uint64()).String()
 				}
@@ -206,22 +258,22 @@ func (rdb *Rconn) InsertBlock(blockIn *BlockIn) {
 				}
 				return hexutil.Uint64(blockIn.BlockRewardFunc(block).Uint64()).String()
 			}(),
-		/*	"state":func() interface{} {
-					if blockIn.IsUncle {
-						return nil
-						}
-					jsondb,_ := ethdb.NewJSONDatabase()
-					blockIn.State.Copy().CommitTo(jsondb, true)
-					return  jsondb.GetDB()
-					//return blockIn.State.Copy().RawDump()
-			}(),*/
+			/*	"state":func() interface{} {
+						if blockIn.IsUncle {
+							return nil
+							}
+						jsondb,_ := ethdb.NewJSONDatabase()
+						blockIn.State.Copy().CommitTo(jsondb, true)
+						return  jsondb.GetDB()
+						//return blockIn.State.Copy().RawDump()
+				}(),*/
 		}
 		return bfields, nil
 	}
 	fields, _ := formatBlock(blockIn.Block)
 	_, err := r.DB("eth_mainnet").Table("blocks").Insert(fields, r.InsertOpts{
 		Conflict: "replace",
-	}).RunWrite(rdb.session)
+	}).RunWrite(session)
 	if err != nil {
 		fmt.Print(err)
 		return
@@ -229,9 +281,12 @@ func (rdb *Rconn) InsertBlock(blockIn *BlockIn) {
 	//fmt.Printf("%d row inserted %d", resp)
 }
 
-func NewRethinkDB() (*Rconn) {
-	_url := "localhost:28015"
-	return &Rconn{
-		url: _url,
+func NewRethinkDB(_ctx *cli.Context) {
+	ctx = _ctx
+	if ctx.GlobalBool(EthVMFlag.Name) {
+		err := Connect()
+		if err != nil {
+			panic("couldnt connect to rethinkdb")
+		}
 	}
 }

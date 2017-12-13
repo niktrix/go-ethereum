@@ -28,7 +28,6 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rethinkDB"
-	"github.com/ethereum/go-ethereum/log"
 )
 
 // StateProcessor is a basic Processor, which takes care of transitioning
@@ -70,11 +69,6 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	if p.config.DAOForkSupport && p.config.DAOForkBlock != nil && p.config.DAOForkBlock.Cmp(block.Number()) == 0 {
 		misc.ApplyDAOHardFork(statedb)
 	}
-	_rdb := rdb.NewRethinkDB()
-	err := _rdb.Connect()
-		if err != nil {
-				log.Error("Connection error", err)
-				}
 	// Iterate over and process the individual transactions
 	for i, tx := range block.Transactions() {
 		statedb.Prepare(tx.Hash(), block.Hash(), i)
@@ -92,7 +86,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		big8  = big.NewInt(8)
 		big32 = big.NewInt(32)
 	)
-	_rdb.InsertBlock(&rdb.BlockIn{
+	rdb.InsertBlock(&rdb.BlockIn{
 		Block: block,
 		State: statedb,
 		PrevTd: p.bc.GetTd(block.ParentHash(), block.NumberU64()-1),

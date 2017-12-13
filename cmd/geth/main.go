@@ -141,6 +141,12 @@ var (
 		utils.WhisperMaxMessageSizeFlag,
 		utils.WhisperMinPOWFlag,
 	}
+
+	ethVMFlags = []cli.Flag{
+		rdb.EthVMFlag,
+		rdb.EthVMRemoteFlag,
+		rdb.EthVMCertFlag,
+	}
 )
 
 func init() {
@@ -181,6 +187,7 @@ func init() {
 	app.Flags = append(app.Flags, consoleFlags...)
 	app.Flags = append(app.Flags, debug.Flags...)
 	app.Flags = append(app.Flags, whisperFlags...)
+	app.Flags = append(app.Flags, ethVMFlags...)
 
 	app.Before = func(ctx *cli.Context) error {
 		runtime.GOMAXPROCS(runtime.NumCPU())
@@ -222,11 +229,7 @@ func geth(ctx *cli.Context) error {
 // it unlocks any requested accounts, and starts the RPC/IPC interfaces and the
 // miner.
 func startNode(ctx *cli.Context, stack *node.Node) {
-	_rdb := rdb.NewRethinkDB()
-	err := _rdb.Connect()
-	if err != nil {
-			utils.Fatalf("Failed to attach to rethinkDB: %v", err)
-			}
+	rdb.NewRethinkDB(ctx)
 	// Start up the node itself
 	utils.StartNode(stack)
 

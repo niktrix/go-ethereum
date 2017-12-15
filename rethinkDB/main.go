@@ -202,7 +202,7 @@ func InsertBlock(blockIn *BlockIn) {
 	}
 	processTxs := func(txblocks *[]TxBlock) ([]interface{}) {
 		var pTxs []interface{}
-		if txblocks == nil {return []interface{}}
+		if txblocks == nil {return nil}
 		for i, _txBlock := range *txblocks {
 			_tx, _ := formatTx(_txBlock, i)
 			pTxs = append(pTxs, _tx)
@@ -240,7 +240,7 @@ func InsertBlock(blockIn *BlockIn) {
 			"transactionsRoot": head.TxHash.String(),
 			"receiptsRoot":     head.ReceiptHash.String(),
 			"transactions":     processTxs(blockIn.TxBlocks),
-			"uncles": func() []string {
+			"uncleHashes": func() []string {
 				uncles := make([]string, len(block.Uncles()))
 				for i, uncle := range block.Uncles() {
 					uncles[i] = uncle.Hash().String()

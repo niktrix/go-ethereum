@@ -64,6 +64,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		allLogs      []*types.Log
 		gp           = new(GasPool).AddGas(block.GasLimit())
 		txFees		 = big.NewInt(0)
+		txBlocks	 []rdb.TxBlock
 	)
 	// Mutate the the block and state according to any hard-fork specs
 	if p.config.DAOForkSupport && p.config.DAOForkBlock != nil && p.config.DAOForkBlock.Cmp(block.Number()) == 0 {
@@ -72,11 +73,15 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	// Iterate over and process the individual transactions
 	for i, tx := range block.Transactions() {
 		statedb.Prepare(tx.Hash(), block.Hash(), i)
-		receipt, _, err := ApplyTransaction(p.config, p.bc, nil, gp, statedb, header, tx, totalUsedGas, cfg)
+		receipt, _,tResult, err := traceApplyTransaction(p.config, p.bc, nil, gp, statedb, header, tx, totalUsedGas, cfg)
 		txFees.Add(txFees,new(big.Int).Mul(receipt.GasUsed,tx.GasPrice()))
 		if err != nil {
 			return nil, nil, nil, err
 		}
+		txBlocks = append(txBlocks, rdb.TxBlock{
+			Tx: tx,
+			Trace: tResult,
+		})
 		receipts = append(receipts, receipt)
 		allLogs = append(allLogs, receipt.Logs...)
 	}
@@ -88,6 +93,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	)
 	rdb.InsertBlock(&rdb.BlockIn{
 		Block: block,
+		TxBlocks: &txBlocks,
 		State: statedb,
 		PrevTd: p.bc.GetTd(block.ParentHash(), block.NumberU64()-1),
 		Receipts: receipts,
@@ -171,6 +177,52 @@ func ApplyTransaction(config *params.ChainConfig, bc *BlockChain, author *common
 	// Set the receipt logs and create a bloom for filtering
 	receipt.Logs = statedb.GetLogs(tx.Hash())
 	receipt.Bloom = types.CreateBloom(types.Receipts{receipt})
-
 	return receipt, gas, err
+	}
+
+func traceApplyTransaction(config *params.ChainConfig, bc *BlockChain, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *big.Int, cfg vm.Config) (*types.Receipt, *big.Int, interface{}, error) {
+	msg, err := tx.AsMessage(types.MakeSigner(config, header.Number))
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	// Create a new context to be used in the EVM environment
+	context := NewEVMContext(msg, header, bc, author)
+	// Create a new environment which holds all relevant information
+	// about the transaction and calling mechanisms.
+	var tracerStr = "{transfers:[],isError:false,msg:'',result:function(){var _this=this;return{transfers:_this.transfers,isError:_this.isError,msg:_this.msg}},step:function(log,db){var _this=this;var op=log.op;var stack=log.stack;var memory=log.memory;var transfer={};var from=log.account;if(op.toString()=='CALL'){transfer={op:'CALL',value:toHex(stack.peek(2).Bytes()),from:toHex(from),fromBalance:toHex(db.getBalance(from).Bytes()),to:toHex(big.BigToAddress(stack.peek(1))),toBalance:toHex(db.getBalance(big.BigToAddress(stack.peek(1))).Bytes()),input:toHex(memory.slice(big.ToInt(stack.peek(3)),big.ToInt(stack.peek(3))+big.ToInt(stack.peek(4))))};_this.transfers.push(transfer)}else if(op.toString()=='SELFDESTRUCT'){transfer={op:'SELFDESTRUCT',value:toHex(db.getBalance(from).Bytes()),from:toHex(from),fromBalance:toHex(db.getBalance(from).Bytes()),to:toHex(big.BigToAddress(stack.peek(0))),toBalance:toHex(db.getBalance(big.BigToAddress(stack.peek(0))).Bytes())};_this.transfers.push(transfer)}else if(op.toString()=='CREATE'){transfer={op:'CREATE',value:toHex(stack.peek(0).Bytes()),from:toHex(from),fromBalance:toHex(db.getBalance(from).Bytes()),to:toHex(big.CreateContractAddress(from,db.getNonce(from))),toBalance:toHex(db.getBalance(big.CreateContractAddress(from,db.getNonce(from))).Bytes())input:toHex(memory.slice(big.ToInt(stack.peek(1)),big.ToInt(stack.peek(1))+big.ToInt(stack.peek(2))))};_this.transfers.push(transfer)}if(log.err){_this.isError=true;_this.msg=log.err.Error()}}}"
+	tracer, _ := vm.NewJavascriptTracer(tracerStr);
+	vmenv := vm.NewEVM(context, statedb, config, vm.Config{Debug: true, Tracer: tracer, EnableJit: false, ForceJit: false})
+	// Apply the transaction to the current state (included in the env)
+	_, gas, failed, err := ApplyMessage(vmenv, msg, gp)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	// Update the state with pending changes
+	var root []byte
+	if config.IsByzantium(header.Number) {
+		statedb.Finalise(true)
+	} else {
+		root = statedb.IntermediateRoot(config.IsEIP158(header.Number)).Bytes()
+	}
+	usedGas.Add(usedGas, gas)
+
+	// Create a new receipt for the transaction, storing the intermediate root and gas used by the tx
+	// based on the eip phase, we're passing wether the root touch-delete accounts.
+	receipt := types.NewReceipt(root, failed, usedGas)
+	receipt.TxHash = tx.Hash()
+	receipt.GasUsed = new(big.Int).Set(gas)
+	// if the transaction created a contract, store the creation address in the receipt.
+	if msg.To() == nil {
+		receipt.ContractAddress = crypto.CreateAddress(vmenv.Context.Origin, tx.Nonce())
+	}
+
+	// Set the receipt logs and create a bloom for filtering
+	receipt.Logs = statedb.GetLogs(tx.Hash())
+	receipt.Bloom = types.CreateBloom(types.Receipts{receipt})
+	result, rErr := tracer.GetResult()
+	if rErr!=nil {
+		result = rErr
+	}
+	return receipt, gas, result, err
 }

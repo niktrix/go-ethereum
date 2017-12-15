@@ -39,11 +39,11 @@ func (fb *fakeBig) NewInt(x int64) *big.Int {
 func (fb *fakeBig) ToInt(x *big.Int) int64 {
 	return x.Int64()
 }
-func (fb *fakeBig) BigToAddress(b *big.Int) string {
-	return common.BytesToAddress(b.Bytes()).String()
+func (fb *fakeBig) BigToAddress(b *big.Int) common.Address {
+	return common.BytesToAddress(b.Bytes())
 }
-func (fb *fakeBig) CreateContractAddress(addr string, nonce uint64) string {
-	return crypto.CreateAddress(common.HexToAddress(addr), nonce).String()
+func (fb *fakeBig) CreateContractAddress(addr string, nonce uint64) common.Address {
+	return crypto.CreateAddress(common.HexToAddress(addr), nonce)
 }
 
 // OpCodeWrapper provides a JavaScript-friendly wrapper around OpCode, to convince Otto to treat it

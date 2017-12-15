@@ -45,6 +45,7 @@ func (ctx *ServiceContext) OpenDatabase(name string, cache int, handles int) (et
 	}
 	//db, err := ethdb.NewLedisDatabase()//ethdb.NewLDBDatabase(ctx.config.resolvePath(name), cache, handles)
 	db, err := ethdb.NewLDBDatabase(ctx.config.resolvePath(name), cache, handles)
+	//db, err :=ethdb.NewDataStoreDB()
 	if err != nil {
 		return nil, err
 	}

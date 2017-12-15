@@ -51,8 +51,13 @@ var (
 	session *r.Session
 )
 
+type TxBlock struct {
+	Tx    *types.Transaction
+	Trace interface{}
+}
 type BlockIn struct {
 	Block           *types.Block
+	TxBlocks        *[]TxBlock
 	State           *state.StateDB
 	PrevTd          *big.Int
 	Receipts        types.Receipts
@@ -69,7 +74,7 @@ func Connect() error {
 	var _err error
 	if ctx.GlobalBool(EthVMFlag.Name) && !ctx.GlobalBool(EthVMRemoteFlag.Name) {
 		_session, _err = r.Connect(r.ConnectOpts{
-			Address:  "localhost:28015",
+			Address: "localhost:28015",
 		})
 	} else if ctx.GlobalBool(EthVMRemoteFlag.Name) && !ctx.GlobalBool(EthVMCertFlag.Name) {
 		rethinkurl, _ := url.Parse(os.Getenv("RETHINKDB_URL"))
@@ -112,7 +117,8 @@ func InsertBlock(blockIn *BlockIn) {
 	if !ctx.GlobalBool(EthVMFlag.Name) {
 		return
 	}
-	formatTx := func(tx *types.Transaction, index int) (interface{}, error) {
+	formatTx := func(txBlock TxBlock, index int) (interface{}, error) {
+		tx := txBlock.Tx
 		receipt := blockIn.Receipts[index]
 		head := blockIn.Block.Header()
 		if receipt == nil {
@@ -181,6 +187,7 @@ func InsertBlock(blockIn *BlockIn) {
 			"v":                 (*hexutil.Big)(_v).String(),
 			"r":                 (*hexutil.Big)(_r).String(),
 			"s":                 (*hexutil.Big)(_s).String(),
+			"trace":             txBlock.Trace,
 			"status":            hexutil.Uint(receipt.Status),
 		}
 		if len(receipt.Logs) == 0 {
@@ -193,10 +200,12 @@ func InsertBlock(blockIn *BlockIn) {
 		}
 		return rfields, nil
 	}
-	processTxs := func(txs types.Transactions) ([]interface{}) {
-		pTxs := make([]interface{}, len(txs))
-		for i, tx := range txs {
-			pTxs[i], _ = formatTx(tx, i)
+	processTxs := func(txblocks *[]TxBlock) ([]interface{}) {
+		var pTxs []interface{}
+		if txblocks == nil {return []interface{}}
+		for i, _txBlock := range *txblocks {
+			_tx, _ := formatTx(_txBlock, i)
+			pTxs = append(pTxs, _tx)
 		}
 		return pTxs
 	}
@@ -230,7 +239,7 @@ func InsertBlock(blockIn *BlockIn) {
 			"timestamp":        (*hexutil.Big)(head.Time).String(),
 			"transactionsRoot": head.TxHash.String(),
 			"receiptsRoot":     head.ReceiptHash.String(),
-			"transactions":     processTxs(block.Transactions()),
+			"transactions":     processTxs(blockIn.TxBlocks),
 			"uncles": func() []string {
 				uncles := make([]string, len(block.Uncles()))
 				for i, uncle := range block.Uncles() {

@@ -46,9 +46,16 @@ var (
 		Name:  "ethvm.cert",
 		Usage: "use custom ssl cert for rethinkdb connection, make sure to set RETHINKDB_CERT env variable ",
 	}
-	ctx     *cli.Context
-	rUrl    string
-	session *r.Session
+	ctx       *cli.Context
+	rUrl      string
+	session   *r.Session
+	DB_NAME   = "eth_mainnet"
+	DB_Tables = map[string]string{
+		"blocks":       "blocks",
+		"transactions": "transactions",
+		"traces":       "traces",
+		"logs":         "logs",
+	}
 )
 
 type TxBlock struct {
@@ -110,6 +117,10 @@ func Connect() error {
 	} else {
 		panic("Error during rethink connection")
 	}
+	r.DBCreate(DB_NAME).RunWrite(session)
+	for _, v := range DB_Tables {
+		r.DB(DB_NAME).TableCreate(v, r.TableCreateOpts{PrimaryKey: "hash"}).RunWrite(session)
+	}
 	return _err
 }
 
@@ -117,13 +128,13 @@ func InsertBlock(blockIn *BlockIn) {
 	if !ctx.GlobalBool(EthVMFlag.Name) {
 		return
 	}
-	formatTx := func(txBlock TxBlock, index int) (interface{}, error) {
+	formatTx := func(txBlock TxBlock, index int) (interface{}, interface{}, interface{}) {
 		tx := txBlock.Tx
 		receipt := blockIn.Receipts[index]
 		head := blockIn.Block.Header()
 		if receipt == nil {
 			log.Debug("Receipt not found for transaction", "hash", tx.Hash())
-			return nil, nil
+			return nil, nil, nil
 		}
 		signer := blockIn.Signer
 		from, _ := types.Sender(signer, tx)
@@ -133,10 +144,10 @@ func InsertBlock(blockIn *BlockIn) {
 		if tx.To() != nil {
 			toBalance = blockIn.State.GetBalance(*tx.To())
 		}
-		formatTopics := func(topics []common.Hash) ([]string) {
-			arrTopics := make([]string, len(topics))
+		formatTopics := func(topics []common.Hash) ([][]byte) {
+			arrTopics := make([][]byte, len(topics))
 			for i, topic := range topics {
-				arrTopics[i] = topic.String()
+				arrTopics[i] = topic.Bytes()
 			}
 			return arrTopics
 		}
@@ -144,14 +155,14 @@ func InsertBlock(blockIn *BlockIn) {
 			dLogs := make([]interface{}, len(logs))
 			for i, log := range logs {
 				logFields := map[string]interface{}{
-					"address":     log.Address.String(),
+					"address":     log.Address.Bytes(),
 					"topics":      formatTopics(log.Topics),
-					"data":        hexutil.Bytes(log.Data).String(),
-					"blockNumber": hexutil.Uint64(log.BlockNumber).String(),
-					"txHash":      log.TxHash.String(),
-					"txIndex":     hexutil.Uint64(log.Index).String(),
-					"blockHash":   log.BlockHash.String(),
-					"index":       hexutil.Uint64(log.Index).String(),
+					"data":        log.Data,
+					"blockNumber": big.NewInt(int64(log.BlockNumber)).Bytes(),
+					"txHash":      log.TxHash.Bytes(),
+					"txIndex":     big.NewInt(int64(log.TxIndex)).Bytes(),
+					"blockHash":   log.BlockHash.Bytes(),
+					"index":       big.NewInt(int64(log.Index)).Bytes(),
 					"removed":     log.Removed,
 				}
 				dLogs[i] = logFields
@@ -159,91 +170,122 @@ func InsertBlock(blockIn *BlockIn) {
 			return dLogs
 		}
 		rfields := map[string]interface{}{
-			"root":             blockIn.Block.Header().ReceiptHash.String(),
-			"blockHash":        blockIn.Block.Hash().String(),
-			"blockNumber":      (*hexutil.Big)(head.Number).String(),
-			"transactionIndex": hexutil.Uint64(index).String(),
-			"from":             from.String(),
-			"fromBalance":      (*hexutil.Big)(fromBalance).String(),
-			"to": func() string {
+			"root":             blockIn.Block.Header().ReceiptHash.Bytes(),
+			"blockHash":        blockIn.Block.Hash().Bytes(),
+			"blockNumber":      head.Number.Bytes(),
+			"transactionIndex": big.NewInt(int64(index)).Bytes(),
+			"from":             from.Bytes(),
+			"fromBalance":      fromBalance.Bytes(),
+			"to": func() []byte {
 				if tx.To() == nil {
-					return string("")
+					return make([]byte, 0)
 				} else {
-					return tx.To().String()
+					return tx.To().Bytes()
 				}
 			}(),
-			"toBalance":         (*hexutil.Big)(toBalance).String(),
-			"gasUsed":           (*hexutil.Big)(receipt.GasUsed).String(),
-			"cumulativeGasUsed": (*hexutil.Big)(receipt.CumulativeGasUsed).String(),
+			"toBalance":         toBalance.Bytes(),
+			"gasUsed":           receipt.GasUsed.Bytes(),
+			"cumulativeGasUsed": receipt.CumulativeGasUsed.Bytes(),
 			"contractAddress":   nil,
-			"logs":              formatLogs(receipt.Logs),
-			"logsBloom":         hexutil.Bytes(receipt.Bloom.Bytes()).String(),
-			"gas":               (*hexutil.Big)(tx.Gas()).String(),
-			"gasPrice":          (*hexutil.Big)(tx.GasPrice()).String(),
-			"hash":              tx.Hash().String(),
-			"input":             hexutil.Bytes(tx.Data()).String(),
-			"nonce":             hexutil.Uint64(tx.Nonce()).String(),
-			"value":             (*hexutil.Big)(tx.Value()).String(),
-			"v":                 (*hexutil.Big)(_v).String(),
-			"r":                 (*hexutil.Big)(_r).String(),
-			"s":                 (*hexutil.Big)(_s).String(),
-			"trace":             txBlock.Trace,
-			"status":            hexutil.Uint(receipt.Status),
+			"logsBloom":         receipt.Bloom.Bytes(),
+			"gas":               tx.Gas().Bytes(),
+			"gasPrice":          tx.GasPrice().Bytes(),
+			"hash":              tx.Hash().Bytes(),
+			"input":             tx.Data(),
+			"nonce":             big.NewInt(int64(tx.Nonce())).Bytes(),
+			"value":             tx.Value().Bytes(),
+			"v":                 (_v).Bytes(),
+			"r":                 (_r).Bytes(),
+			"s":                 (_s).Bytes(),
+			"status":            receipt.Status,
+		}
+		rlogs := map[string]interface{}{
+			"hash": tx.Hash().Bytes(),
+			"logs": formatLogs(receipt.Logs),
+		}
+		rTrace := map[string]interface{}{
+			"hash":  tx.Hash().Bytes(),
+			"trace": txBlock.Trace,
 		}
 		if len(receipt.Logs) == 0 {
-			rfields["logs"] = nil
+			rlogs["logs"] = nil
 			rfields["logsBloom"] = nil
 		}
 		// If the ContractAddress is 20 0x0 bytes, assume it is not a contract creation
 		if receipt.ContractAddress != (common.Address{}) {
 			rfields["contractAddress"] = receipt.ContractAddress
 		}
-		return rfields, nil
+		return rfields, rlogs, rTrace
 	}
-	processTxs := func(txblocks *[]TxBlock) ([]interface{}) {
-		var pTxs []interface{}
-		if txblocks == nil {return nil}
-		for i, _txBlock := range *txblocks {
-			_tx, _ := formatTx(_txBlock, i)
-			pTxs = append(pTxs, _tx)
+	processTxs := func(txblocks *[]TxBlock) ([][]byte) {
+		var tHashes [][]byte
+		var tTxs []interface{}
+		var tLogs []interface{}
+		var tTrace []interface{}
+		if txblocks == nil {
+			return nil
 		}
-		return pTxs
+		for i, _txBlock := range *txblocks {
+			_tTx, _tLogs, _tTrace := formatTx(_txBlock, i)
+			tTxs = append(tTxs, _tTx)
+			tLogs = append(tLogs, _tLogs)
+			tTrace = append(tTrace, _tTrace)
+			tHashes = append(tHashes, _txBlock.Tx.Hash().Bytes())
+		}
+		_, err := r.DB(DB_NAME).Table(DB_Tables["transactions"]).Insert(tTxs, r.InsertOpts{
+			Conflict: "replace",
+		}).RunWrite(session)
+		if err != nil {
+			panic(err)
+		}
+		_, err = r.DB(DB_NAME).Table(DB_Tables["logs"]).Insert(tLogs, r.InsertOpts{
+			Conflict: "replace",
+		}).RunWrite(session)
+		if err != nil {
+			panic(err)
+		}
+		_, err = r.DB(DB_NAME).Table(DB_Tables["traces"]).Insert(tTrace, r.InsertOpts{
+			Conflict: "replace",
+		}).RunWrite(session)
+		if err != nil {
+			panic(err)
+		}
+		return tHashes
 	}
 	formatBlock := func(block *types.Block) (map[string]interface{}, error) {
 		head := block.Header() // copies the header once
 		minerBalance := blockIn.State.GetBalance(head.Coinbase)
 		bfields := map[string]interface{}{
-			"id":           head.Hash().String(),
-			"number":       hexutil.Uint64(head.Number.Uint64()).String(),
+			"number":       head.Number.Bytes(),
 			"intNumber":    hexutil.Uint64(head.Number.Uint64()),
-			"hash":         head.Hash().String(),
-			"parentHash":   head.ParentHash.String(),
-			"nonce":        hexutil.Uint64(head.Nonce.Uint64()).String(),
-			"mixHash":      head.MixDigest.String(),
-			"sha3Uncles":   head.UncleHash.String(),
-			"logsBloom":    hexutil.Bytes(head.Bloom.Bytes()).String(),
-			"stateRoot":    head.Root.String(),
-			"miner":        head.Coinbase.String(),
-			"minerBalance": (*hexutil.Big)(minerBalance).String(),
-			"difficulty":   (*hexutil.Big)(head.Difficulty).String(),
-			"totalDifficulty": func() string {
+			"hash":         head.Hash().Bytes(),
+			"parentHash":   head.ParentHash.Bytes(),
+			"nonce":        head.Nonce,
+			"mixHash":      head.MixDigest.Bytes(),
+			"sha3Uncles":   head.UncleHash.Bytes(),
+			"logsBloom":    head.Bloom.Bytes(),
+			"stateRoot":    head.Root.Bytes(),
+			"miner":        head.Coinbase.Bytes(),
+			"minerBalance": minerBalance.Bytes(),
+			"difficulty":   head.Difficulty.Bytes(),
+			"totalDifficulty": func() []byte {
 				if blockIn.PrevTd == nil {
-					return string("")
+					return make([]byte, 0)
 				}
-				return (*hexutil.Big)(new(big.Int).Add(block.Difficulty(), blockIn.PrevTd)).String()
+				return (new(big.Int).Add(block.Difficulty(), blockIn.PrevTd)).Bytes()
 			}(),
-			"extraData":        hexutil.Bytes(head.Extra).String(),
-			"size":             hexutil.Uint64(uint64(block.Size().Int64())).String(),
-			"gasLimit":         (*hexutil.Big)(head.GasLimit).String(),
-			"gasUsed":          (*hexutil.Big)(head.GasUsed).String(),
-			"timestamp":        (*hexutil.Big)(head.Time).String(),
-			"transactionsRoot": head.TxHash.String(),
-			"receiptsRoot":     head.ReceiptHash.String(),
-			"transactions":     processTxs(blockIn.TxBlocks),
-			"uncleHashes": func() []string {
-				uncles := make([]string, len(block.Uncles()))
+			"extraData":         head.Extra,
+			"size":              big.NewInt(block.Size().Int64()).Bytes(),
+			"gasLimit":          head.GasLimit.Bytes(),
+			"gasUsed":           head.GasUsed.Bytes(),
+			"timestamp":         head.Time.Bytes(),
+			"transactionsRoot":  head.TxHash.Bytes(),
+			"receiptsRoot":      head.ReceiptHash.Bytes(),
+			"transactionHashes": processTxs(blockIn.TxBlocks),
+			"uncleHashes": func() [][]byte {
+				uncles := make([][]byte, len(block.Uncles()))
 				for i, uncle := range block.Uncles() {
-					uncles[i] = uncle.Hash().String()
+					uncles[i] = uncle.Hash().Bytes()
 					InsertBlock(&BlockIn{
 						Block:       types.NewBlockWithHeader(uncle),
 						State:       blockIn.State,
@@ -255,32 +297,23 @@ func InsertBlock(blockIn *BlockIn) {
 				return uncles
 			}(),
 			"isUncle": blockIn.IsUncle,
-			"txFees": func() string {
+			"txFees": func() []byte {
 				if blockIn.TxFees != nil {
-					return hexutil.Uint64(blockIn.TxFees.Uint64()).String()
+					return blockIn.TxFees.Bytes()
 				}
-				return "0x0"
+				return make([]byte, 0)
 			}(),
-			"blockReward": func() string {
+			"blockReward": func() []byte {
 				if blockIn.IsUncle {
-					return hexutil.Uint64(blockIn.UncleReward.Uint64()).String()
+					return blockIn.UncleReward.Bytes()
 				}
-				return hexutil.Uint64(blockIn.BlockRewardFunc(block).Uint64()).String()
+				return blockIn.BlockRewardFunc(block).Bytes()
 			}(),
-			/*	"state":func() interface{} {
-						if blockIn.IsUncle {
-							return nil
-							}
-						jsondb,_ := ethdb.NewJSONDatabase()
-						blockIn.State.Copy().CommitTo(jsondb, true)
-						return  jsondb.GetDB()
-						//return blockIn.State.Copy().RawDump()
-				}(),*/
 		}
 		return bfields, nil
 	}
 	fields, _ := formatBlock(blockIn.Block)
-	_, err := r.DB("eth_mainnet").Table("blocks").Insert(fields, r.InsertOpts{
+	_, err := r.DB(DB_NAME).Table(DB_Tables["blocks"]).Insert(fields, r.InsertOpts{
 		Conflict: "replace",
 	}).RunWrite(session)
 	if err != nil {

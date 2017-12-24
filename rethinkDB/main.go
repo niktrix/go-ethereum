@@ -31,6 +31,7 @@ import (
 	"os"
 	"crypto/tls"
 	"net/url"
+	"sync"
 )
 
 var (
@@ -217,13 +218,13 @@ func InsertBlock(blockIn *BlockIn) {
 		}
 		return rfields, rlogs, rTrace
 	}
-	processTxs := func(txblocks *[]TxBlock) ([][]byte) {
+	processTxs := func(txblocks *[]TxBlock) ([][]byte, interface{},  interface{}, interface{})  {
 		var tHashes [][]byte
 		var tTxs []interface{}
 		var tLogs []interface{}
 		var tTrace []interface{}
 		if txblocks == nil {
-			return nil
+			return nil, nil, nil, nil
 		}
 		for i, _txBlock := range *txblocks {
 			_tTx, _tLogs, _tTrace := formatTx(_txBlock, i)
@@ -232,27 +233,9 @@ func InsertBlock(blockIn *BlockIn) {
 			tTrace = append(tTrace, _tTrace)
 			tHashes = append(tHashes, _txBlock.Tx.Hash().Bytes())
 		}
-		_, err := r.DB(DB_NAME).Table(DB_Tables["transactions"]).Insert(tTxs, r.InsertOpts{
-			Conflict: "replace",
-		}).RunWrite(session)
-		if err != nil {
-			panic(err)
-		}
-		_, err = r.DB(DB_NAME).Table(DB_Tables["logs"]).Insert(tLogs, r.InsertOpts{
-			Conflict: "replace",
-		}).RunWrite(session)
-		if err != nil {
-			panic(err)
-		}
-		_, err = r.DB(DB_NAME).Table(DB_Tables["traces"]).Insert(tTrace, r.InsertOpts{
-			Conflict: "replace",
-		}).RunWrite(session)
-		if err != nil {
-			panic(err)
-		}
-		return tHashes
+		return tHashes, tTxs, tLogs, tTrace
 	}
-	formatBlock := func(block *types.Block) (map[string]interface{}, error) {
+	formatBlock := func(block *types.Block, tHashes [][]byte) (map[string]interface{}, error) {
 		head := block.Header() // copies the header once
 		minerBalance := blockIn.State.GetBalance(head.Coinbase)
 		bfields := map[string]interface{}{
@@ -281,7 +264,7 @@ func InsertBlock(blockIn *BlockIn) {
 			"timestamp":         head.Time.Bytes(),
 			"transactionsRoot":  head.TxHash.Bytes(),
 			"receiptsRoot":      head.ReceiptHash.Bytes(),
-			"transactionHashes": processTxs(blockIn.TxBlocks),
+			"transactionHashes": tHashes,
 			"uncleHashes": func() [][]byte {
 				uncles := make([][]byte, len(block.Uncles()))
 				for i, uncle := range block.Uncles() {
@@ -312,15 +295,32 @@ func InsertBlock(blockIn *BlockIn) {
 		}
 		return bfields, nil
 	}
-	fields, _ := formatBlock(blockIn.Block)
-	_, err := r.DB(DB_NAME).Table(DB_Tables["blocks"]).Insert(fields, r.InsertOpts{
-		Conflict: "replace",
-	}).RunWrite(session)
-	if err != nil {
-		fmt.Print(err)
-		return
+	tHashes, tTxs, tLogs, tTrace := processTxs(blockIn.TxBlocks)
+	fields, _ := formatBlock(blockIn.Block, tHashes)
+	saveToDB :=  func(){
+		var wg sync.WaitGroup
+		wg.Add(3)
+		saveToDB := func(table string, values interface{}, isWait bool){
+			if values != nil {
+				_, err := r.DB(DB_NAME).Table(DB_Tables[table]).Insert(values, r.InsertOpts{
+					Conflict: "replace",
+				}).RunWrite(session)
+				if err != nil {
+					panic(err)
+				}
+			}
+			if isWait {
+				wg.Done()
+			}
+		}
+
+		go saveToDB("transactions", tTxs, true)
+		go saveToDB("logs", tLogs, true)
+		go saveToDB("traces", tTrace, true)
+		wg.Wait()
+		saveToDB("blocks", fields, false)
 	}
-	//fmt.Printf("%d row inserted %d", resp)
+	saveToDB()
 }
 
 func NewRethinkDB(_ctx *cli.Context) {

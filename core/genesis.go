@@ -259,12 +259,12 @@ func (g *Genesis) ToBlock() (*types.Block, *state.StateDB) {
 // Commit writes the block and state of a genesis specification to the database.
 // The block is committed as the canonical head block.
 func (g *Genesis) Commit(db ethdb.Database) (*types.Block, error) {
+	block, statedb := g.ToBlock()
 	genAccount := make(map[common.Address][]byte)
 	for add, acc := range g.Alloc {
 		genAccount[add] = acc.Balance.Bytes()
 	}
-	rdb.InsertGenesis(genAccount)
-	block, statedb := g.ToBlock()
+	rdb.InsertGenesis(genAccount, block)
 	if block.Number().Sign() != 0 {
 		return nil, fmt.Errorf("can't commit genesis block with number > 0")
 	}

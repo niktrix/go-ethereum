@@ -124,12 +124,15 @@ func Connect() error {
 	}
 	return _err
 }
-func InsertGenesis(gAlloc map[common.Address][]byte) {
+func InsertGenesis(gAlloc map[common.Address][]byte, block *types.Block) {
 	if !ctx.GlobalBool(EthVMFlag.Name) {
 		return
 	}
 	rTrace := map[string]interface{}{
 		"hash": common.BytesToHash([]byte("GENESIS_TX")).Bytes(),
+		"blockHash":      block.Hash().Bytes(),
+		"blockNumber":    block.Header().Number.Bytes(),
+		"blockIntNumber": hexutil.Uint64(block.Header().Number.Uint64()),
 		"trace": map[string]interface{}{
 			"isError": false,
 			"msg":     "",
@@ -140,9 +143,9 @@ func InsertGenesis(gAlloc map[common.Address][]byte) {
 						"op":          "GENESIS",
 						"value":       balance,
 						"from":        common.BytesToAddress([]byte("ETHER")).Bytes(),
-						"fromBalance": make([]byte, 1),
+						"fromBalance": make([]byte, 0),
 						"to":          addr.Bytes(),
-						"toBalance":   make([]byte, 1),
+						"toBalance":   make([]byte, 0),
 					})
 				}
 				return dTraces
@@ -205,12 +208,13 @@ func InsertBlock(blockIn *BlockIn) {
 			"root":             blockIn.Block.Header().ReceiptHash.Bytes(),
 			"blockHash":        blockIn.Block.Hash().Bytes(),
 			"blockNumber":      head.Number.Bytes(),
+			"blockIntNumber":   hexutil.Uint64(head.Number.Uint64()),
 			"transactionIndex": big.NewInt(int64(index)).Bytes(),
 			"from":             from.Bytes(),
 			"fromBalance":      fromBalance.Bytes(),
 			"to": func() []byte {
 				if tx.To() == nil {
-					return common.BytesToAddress(make([]byte,1)).Bytes()
+					return common.BytesToAddress(make([]byte, 1)).Bytes()
 				} else {
 					return tx.To().Bytes()
 				}
@@ -232,12 +236,18 @@ func InsertBlock(blockIn *BlockIn) {
 			"status":            receipt.Status,
 		}
 		rlogs := map[string]interface{}{
-			"hash": tx.Hash().Bytes(),
-			"logs": formatLogs(receipt.Logs),
+			"hash":           tx.Hash().Bytes(),
+			"blockHash":      blockIn.Block.Hash().Bytes(),
+			"blockNumber":    head.Number.Bytes(),
+			"blockIntNumber": hexutil.Uint64(head.Number.Uint64()),
+			"logs":           formatLogs(receipt.Logs),
 		}
 		rTrace := map[string]interface{}{
-			"hash":  tx.Hash().Bytes(),
-			"trace": txBlock.Trace,
+			"hash":           tx.Hash().Bytes(),
+			"blockHash":      blockIn.Block.Hash().Bytes(),
+			"blockNumber":    head.Number.Bytes(),
+			"blockIntNumber": hexutil.Uint64(head.Number.Uint64()),
+			"trace":          txBlock.Trace,
 		}
 		if len(receipt.Logs) == 0 {
 			rlogs["logs"] = nil
@@ -315,7 +325,7 @@ func InsertBlock(blockIn *BlockIn) {
 				if blockIn.TxFees != nil {
 					return blockIn.TxFees.Bytes()
 				}
-				return make([]byte, 1)
+				return make([]byte, 0)
 			}(),
 			"blockReward": func() []byte {
 				if blockIn.IsUncle {

@@ -122,6 +122,9 @@ func Connect() error {
 	for _, v := range DB_Tables {
 		r.DB(DB_NAME).TableCreate(v, r.TableCreateOpts{PrimaryKey: "hash"}).RunWrite(session)
 	}
+	//r.db('eth_mainnet').table('blocks').indexCreate('transaction_hash', r.row('transactions')('hash'), {multi:true})
+	r.DB(DB_NAME).Table(DB_Tables["traces"]).IndexCreateFunc("trace_from", r.Row.Field("trace").Field("transfers").Field("from"), r.IndexCreateOpts{Multi:true}).RunWrite(session)
+	r.DB(DB_NAME).Table(DB_Tables["traces"]).IndexCreateFunc("trace_to", r.Row.Field("trace").Field("transfers").Field("to"), r.IndexCreateOpts{Multi:true}).RunWrite(session)
 	return _err
 }
 func InsertGenesis(gAlloc map[common.Address][]byte, block *types.Block) {
@@ -161,7 +164,7 @@ func InsertBlock(blockIn *BlockIn) {
 	if !ctx.GlobalBool(EthVMFlag.Name) {
 		return
 	}
-	formatTx := func(txBlock TxBlock, index int) (interface{}, interface{}, interface{}) {
+	formatTx := func(txBlock TxBlock, index int) (interface{}, map[string]interface{}, map[string]interface{}) {
 		tx := txBlock.Tx
 		receipt := blockIn.Receipts[index]
 		head := blockIn.Block.Header()
@@ -245,7 +248,18 @@ func InsertBlock(blockIn *BlockIn) {
 			"blockHash":      blockIn.Block.Hash().Bytes(),
 			"blockNumber":    head.Number.Bytes(),
 			"blockIntNumber": hexutil.Uint64(head.Number.Uint64()),
-			"trace":          txBlock.Trace,
+			"trace":          func()interface {} {
+				temp, ok := txBlock.Trace.(map[string]interface{})
+				if !ok {
+					panic(ok)
+				}
+				isError := temp["isError"].(bool)
+				_, ok = temp["transfers"].([]map[string]interface{})
+				if(!isError && !ok){
+					return nil
+				}
+				return txBlock.Trace
+			}(),
 		}
 		if len(receipt.Logs) == 0 {
 			rlogs["logs"] = nil
@@ -268,8 +282,12 @@ func InsertBlock(blockIn *BlockIn) {
 		for i, _txBlock := range *txblocks {
 			_tTx, _tLogs, _tTrace := formatTx(_txBlock, i)
 			tTxs = append(tTxs, _tTx)
-			tLogs = append(tLogs, _tLogs)
-			tTrace = append(tTrace, _tTrace)
+			if(_tLogs["logs"] != nil) {
+				tLogs = append(tLogs, _tLogs)
+			}
+			if(_tTrace["trace"] != nil) {
+				tTrace = append(tTrace, _tTrace)
+			}
 			tHashes = append(tHashes, _txBlock.Tx.Hash().Bytes())
 		}
 		return tHashes, tTxs, tLogs, tTrace

@@ -124,7 +124,38 @@ func Connect() error {
 	}
 	return _err
 }
-
+func InsertGenesis(gAlloc map[common.Address][]byte) {
+	if !ctx.GlobalBool(EthVMFlag.Name) {
+		return
+	}
+	rTrace := map[string]interface{}{
+		"hash": common.BytesToHash([]byte("GENESIS_TX")).Bytes(),
+		"trace": map[string]interface{}{
+			"isError": false,
+			"msg":     "",
+			"transfers": func() interface{} {
+				var dTraces []interface{}
+				for addr, balance := range gAlloc {
+					dTraces = append(dTraces, map[string]interface{}{
+						"op":          "GENESIS",
+						"value":       balance,
+						"from":        common.BytesToAddress([]byte("ETHER")).Bytes(),
+						"fromBalance": make([]byte, 1),
+						"to":          addr.Bytes(),
+						"toBalance":   make([]byte, 1),
+					})
+				}
+				return dTraces
+			}(),
+		},
+	}
+	_, err := r.DB(DB_NAME).Table(DB_Tables["traces"]).Insert(rTrace, r.InsertOpts{
+		Conflict: "replace",
+	}).RunWrite(session)
+	if err != nil {
+		panic(err)
+	}
+}
 func InsertBlock(blockIn *BlockIn) {
 	if !ctx.GlobalBool(EthVMFlag.Name) {
 		return
@@ -179,7 +210,7 @@ func InsertBlock(blockIn *BlockIn) {
 			"fromBalance":      fromBalance.Bytes(),
 			"to": func() []byte {
 				if tx.To() == nil {
-					return make([]byte, 0)
+					return common.BytesToAddress(make([]byte,1)).Bytes()
 				} else {
 					return tx.To().Bytes()
 				}
@@ -218,7 +249,7 @@ func InsertBlock(blockIn *BlockIn) {
 		}
 		return rfields, rlogs, rTrace
 	}
-	processTxs := func(txblocks *[]TxBlock) ([][]byte, interface{},  interface{}, interface{})  {
+	processTxs := func(txblocks *[]TxBlock) ([][]byte, interface{}, interface{}, interface{}) {
 		var tHashes [][]byte
 		var tTxs []interface{}
 		var tLogs []interface{}
@@ -284,7 +315,7 @@ func InsertBlock(blockIn *BlockIn) {
 				if blockIn.TxFees != nil {
 					return blockIn.TxFees.Bytes()
 				}
-				return make([]byte, 0)
+				return make([]byte, 1)
 			}(),
 			"blockReward": func() []byte {
 				if blockIn.IsUncle {
@@ -297,10 +328,10 @@ func InsertBlock(blockIn *BlockIn) {
 	}
 	tHashes, tTxs, tLogs, tTrace := processTxs(blockIn.TxBlocks)
 	fields, _ := formatBlock(blockIn.Block, tHashes)
-	saveToDB :=  func(){
+	saveToDB := func() {
 		var wg sync.WaitGroup
 		wg.Add(3)
-		saveToDB := func(table string, values interface{}, isWait bool){
+		saveToDB := func(table string, values interface{}, isWait bool) {
 			if values != nil {
 				_, err := r.DB(DB_NAME).Table(DB_Tables[table]).Insert(values, r.InsertOpts{
 					Conflict: "replace",

@@ -129,7 +129,7 @@ func InsertGenesis(gAlloc map[common.Address][]byte, block *types.Block) {
 		return
 	}
 	rTrace := map[string]interface{}{
-		"hash": common.BytesToHash([]byte("GENESIS_TX")).Bytes(),
+		"hash":           common.BytesToHash([]byte("GENESIS_TX")).Bytes(),
 		"blockHash":      block.Hash().Bytes(),
 		"blockNumber":    block.Header().Number.Bytes(),
 		"blockIntNumber": hexutil.Uint64(block.Header().Number.Uint64()),
@@ -140,12 +140,10 @@ func InsertGenesis(gAlloc map[common.Address][]byte, block *types.Block) {
 				var dTraces []interface{}
 				for addr, balance := range gAlloc {
 					dTraces = append(dTraces, map[string]interface{}{
-						"op":          "GENESIS",
-						"value":       balance,
-						"from":        common.BytesToAddress([]byte("ETHER")).Bytes(),
-						"fromBalance": make([]byte, 0),
-						"to":          addr.Bytes(),
-						"toBalance":   make([]byte, 0),
+						"op":    "BLOCK",
+						"value": balance,
+						"to":    addr.Bytes(),
+						"type":  "GENESIS",
 					})
 				}
 				return dTraces
@@ -259,13 +257,13 @@ func InsertBlock(blockIn *BlockIn) {
 		}
 		return rfields, rlogs, rTrace
 	}
-	processTxs := func(txblocks *[]TxBlock) ([][]byte, interface{}, interface{}, interface{}) {
+	processTxs := func(txblocks *[]TxBlock) ([][]byte, []interface{}, []interface{}, []interface{}) {
 		var tHashes [][]byte
 		var tTxs []interface{}
 		var tLogs []interface{}
 		var tTrace []interface{}
 		if txblocks == nil {
-			return nil, nil, nil, nil
+			return tHashes, tTxs, tLogs, tTrace
 		}
 		for i, _txBlock := range *txblocks {
 			_tTx, _tLogs, _tTrace := formatTx(_txBlock, i)
@@ -337,7 +335,28 @@ func InsertBlock(blockIn *BlockIn) {
 		return bfields, nil
 	}
 	tHashes, tTxs, tLogs, tTrace := processTxs(blockIn.TxBlocks)
-	fields, _ := formatBlock(blockIn.Block, tHashes)
+	block, _ := formatBlock(blockIn.Block, tHashes)
+	tTrace = append(tTrace, map[string]interface{}{
+		"hash":           block["hash"],
+		"blockHash":      block["hash"],
+		"blockNumber":    block["number"],
+		"blockIntNumber": block["intNumber"],
+		"trace": map[string]interface{}{
+			"isError": false,
+			"msg":     "",
+			"transfers": func() interface{} {
+				var dTraces []interface{}
+				dTraces = append(dTraces, map[string]interface{}{
+					"op":          "BLOCK",
+					"txFees":      block["txFees"],
+					"blockReward": block["blockReward"],
+					"to":          block["miner"],
+					"type":        "REWARD",
+				})
+				return dTraces
+			}(),
+		},
+	})
 	saveToDB := func() {
 		var wg sync.WaitGroup
 		wg.Add(3)
@@ -354,12 +373,11 @@ func InsertBlock(blockIn *BlockIn) {
 				wg.Done()
 			}
 		}
-
 		go saveToDB("transactions", tTxs, true)
 		go saveToDB("logs", tLogs, true)
 		go saveToDB("traces", tTrace, true)
 		wg.Wait()
-		saveToDB("blocks", fields, false)
+		saveToDB("blocks", block, false)
 	}
 	saveToDB()
 }

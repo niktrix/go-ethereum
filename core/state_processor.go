@@ -100,15 +100,15 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		Signer: types.MakeSigner(p.bc.config, block.Header().Number),
 		IsUncle: false,
 		TxFees: txFees,
-		BlockRewardFunc: func(block *types.Block) *big.Int{
+		BlockRewardFunc: func(block *types.Block) (*big.Int, *big.Int){
 			blockReward := FrontierBlockReward
 			if p.config.IsByzantium(header.Number) {
 				blockReward = ByzantiumBlockReward
 			}
 			reward := new(big.Int).Set(blockReward)
-			multiplier := new(big.Int).Div(blockReward,big32)
-			reward.Add(reward, new(big.Int).Mul(multiplier, big.NewInt(int64(len(block.Uncles())))))
-			return reward
+			multiplier  := new(big.Int).Div(blockReward,big32)
+			uncleReward := new(big.Int).Mul(multiplier, big.NewInt(int64(len(block.Uncles()))))
+			return reward, uncleReward
 		},
 		UncleRewardFunc: func(uncles []*types.Header, index int) *big.Int {
 			blockReward := FrontierBlockReward

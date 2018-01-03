@@ -72,7 +72,7 @@ type BlockIn struct {
 	Signer          types.Signer
 	IsUncle         bool
 	TxFees          *big.Int
-	BlockRewardFunc func(block *types.Block) *big.Int
+	BlockRewardFunc func(block *types.Block) (*big.Int, *big.Int)
 	UncleRewardFunc func(uncles []*types.Header, index int) *big.Int
 	UncleReward     *big.Int
 }
@@ -243,6 +243,17 @@ func InsertBlock(blockIn *BlockIn) {
 			"blockIntNumber": hexutil.Uint64(head.Number.Uint64()),
 			"logs":           formatLogs(receipt.Logs),
 		}
+		getTxTransfer := func() []map[string]interface{} {
+			var dTraces []map[string]interface{}
+			dTraces = append(dTraces, map[string]interface{}{
+				"op":"TX",
+				"from": rfields["from"],
+				"to": rfields["to"],
+				"value": rfields["value"],
+				"input": rfields["input"],
+			})
+			return dTraces
+		}
 		rTrace := map[string]interface{}{
 			"hash":           tx.Hash().Bytes(),
 			"blockHash":      blockIn.Block.Hash().Bytes(),
@@ -254,11 +265,13 @@ func InsertBlock(blockIn *BlockIn) {
 					panic(ok)
 				}
 				isError := temp["isError"].(bool)
-				_, ok = temp["transfers"].([]map[string]interface{})
+				transfers, ok := temp["transfers"].([]map[string]interface{})
 				if(!isError && !ok){
-					return nil
+					temp["transfers"] = getTxTransfer()
+				} else {
+					temp["transfers"] = append(transfers, getTxTransfer()[0])
 				}
-				return txBlock.Trace
+				return temp
 			}(),
 		}
 		if len(receipt.Logs) == 0 {
@@ -295,6 +308,27 @@ func InsertBlock(blockIn *BlockIn) {
 	formatBlock := func(block *types.Block, tHashes [][]byte) (map[string]interface{}, error) {
 		head := block.Header() // copies the header once
 		minerBalance := blockIn.State.GetBalance(head.Coinbase)
+		txFees, blockReward, uncleReward := func() ([]byte, []byte, []byte) {
+			var (
+				_txfees []byte
+				_uncleR []byte
+				_blockR []byte
+			)
+			if blockIn.TxFees != nil {
+				_txfees = blockIn.TxFees.Bytes()
+			} else {
+				_txfees = make([]byte, 0)
+			}
+			if blockIn.IsUncle {
+				_blockR = blockIn.UncleReward.Bytes()
+				_uncleR = make([]byte, 0)
+			} else {
+				blockR, uncleR := blockIn.BlockRewardFunc(block)
+				_blockR, _uncleR = blockR.Bytes(), uncleR.Bytes()
+
+			}
+			return _txfees, _blockR, _uncleR
+		}()
 		bfields := map[string]interface{}{
 			"number":       head.Number.Bytes(),
 			"intNumber":    hexutil.Uint64(head.Number.Uint64()),
@@ -337,18 +371,9 @@ func InsertBlock(blockIn *BlockIn) {
 				return uncles
 			}(),
 			"isUncle": blockIn.IsUncle,
-			"txFees": func() []byte {
-				if blockIn.TxFees != nil {
-					return blockIn.TxFees.Bytes()
-				}
-				return make([]byte, 0)
-			}(),
-			"blockReward": func() []byte {
-				if blockIn.IsUncle {
-					return blockIn.UncleReward.Bytes()
-				}
-				return blockIn.BlockRewardFunc(block).Bytes()
-			}(),
+			"txFees": txFees,
+			"blockReward": blockReward,
+			"uncleReward": uncleReward,
 		}
 		return bfields, nil
 	}
@@ -368,6 +393,7 @@ func InsertBlock(blockIn *BlockIn) {
 					"op":          "BLOCK",
 					"txFees":      block["txFees"],
 					"blockReward": block["blockReward"],
+					"uncleReward": block["uncleReward"],
 					"to":          block["miner"],
 					"type":        "REWARD",
 				})

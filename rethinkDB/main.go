@@ -262,7 +262,10 @@ func InsertBlock(blockIn *BlockIn) {
 			"trace":          func()interface {} {
 				temp, ok := txBlock.Trace.(map[string]interface{})
 				if !ok {
-					panic(ok)
+					temp = map[string]interface{}{
+						"isError" : true,
+						"msg": txBlock.Trace,
+					}
 				}
 				isError := temp["isError"].(bool)
 				transfers, ok := temp["transfers"].([]map[string]interface{})

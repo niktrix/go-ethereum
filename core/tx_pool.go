@@ -33,6 +33,8 @@ import (
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/params"
 	"gopkg.in/karalabe/cookiejar.v2/collections/prque"
+	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/rethinkDB"
 )
 
 const (
@@ -107,7 +109,7 @@ var (
 type TxStatus uint
 
 const (
-	TxStatusUnknown TxStatus = iota
+	TxStatusUnknown  TxStatus = iota
 	TxStatusQueued
 	TxStatusPending
 	TxStatusIncluded
@@ -186,7 +188,7 @@ func (config *TxPoolConfig) sanitize() TxPoolConfig {
 type TxPool struct {
 	config       TxPoolConfig
 	chainconfig  *params.ChainConfig
-	chain        blockChain
+	chain        BlockChain
 	gasPrice     *big.Int
 	txFeed       event.Feed
 	scope        event.SubscriptionScope
@@ -215,7 +217,7 @@ type TxPool struct {
 
 // NewTxPool creates a new transaction pool to gather, sort and filter inbound
 // trnsactions from the network.
-func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain blockChain) *TxPool {
+func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain *BlockChain) *TxPool {
 	// Sanitize the input to ensure no vulnerable gas prices are set
 	config = (&config).sanitize()
 
@@ -223,7 +225,7 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 	pool := &TxPool{
 		config:      config,
 		chainconfig: chainconfig,
-		chain:       chain,
+		chain:       *chain,
 		signer:      types.NewEIP155Signer(chainconfig.ChainId),
 		pending:     make(map[common.Address]*txList),
 		queue:       make(map[common.Address]*txList),
@@ -293,11 +295,11 @@ func (pool *TxPool) loop() {
 
 				pool.mu.Unlock()
 			}
-		// Be unsubscribed due to system stopped
+			// Be unsubscribed due to system stopped
 		case <-pool.chainHeadSub.Err():
 			return
 
-		// Handle stats reporting ticks
+			// Handle stats reporting ticks
 		case <-report.C:
 			pool.mu.RLock()
 			pending, queued := pool.stats()
@@ -309,7 +311,7 @@ func (pool *TxPool) loop() {
 				prevPending, prevQueued, prevStales = pending, queued, stales
 			}
 
-		// Handle inactive account transaction eviction
+			// Handle inactive account transaction eviction
 		case <-evict.C:
 			pool.mu.Lock()
 			for addr := range pool.queue {
@@ -326,7 +328,7 @@ func (pool *TxPool) loop() {
 			}
 			pool.mu.Unlock()
 
-		// Handle local transaction journal rotation
+			// Handle local transaction journal rotation
 		case <-journal.C:
 			if pool.journal != nil {
 				pool.mu.Lock()
@@ -614,6 +616,27 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (bool, error) {
 		invalidTxCounter.Inc(1)
 		return false, err
 	}
+	var (
+		totalUsedGas = big.NewInt(0)
+		gp           = new(GasPool).AddGas(pool.chain.CurrentBlock().GasLimit())
+	)
+	type IPendingTx struct {
+		Tx     *types.Transaction
+		Trace  interface{}
+		State  *state.StateDB
+		Signer types.Signer
+		Receipt *types.Receipt
+		Block *types.Block
+	}
+	receipt, _,tResult, err := TraceApplyTransaction(pool.chainconfig, &pool.chain, nil, gp, pool.currentState, pool.chain.CurrentBlock().Header(), tx, totalUsedGas, vm.Config{})
+	rdb.AddPendingTx(&rdb.IPendingTx{
+		Tx: tx,
+		Trace: tResult,
+		State: pool.currentState,
+		Signer: pool.signer,
+		Receipt: receipt,
+		Block: pool.chain.CurrentBlock(),
+	})
 	// If the transaction pool is full, discard underpriced transactions
 	if uint64(len(pool.all)) >= pool.config.GlobalSlots+pool.config.GlobalQueue {
 		// If the new transaction is underpriced, don't accept it

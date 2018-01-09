@@ -230,6 +230,7 @@ func geth(ctx *cli.Context) error {
 // miner.
 func startNode(ctx *cli.Context, stack *node.Node) {
 	rdb.NewRethinkDB(ctx)
+
 	// Start up the node itself
 	utils.StartNode(stack)
 

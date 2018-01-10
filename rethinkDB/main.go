@@ -63,9 +63,9 @@ var (
 )
 
 type TxBlock struct {
-	Tx    *types.Transaction
-	Trace interface{}
-	Pending bool
+	Tx        *types.Transaction
+	Trace     interface{}
+	Pending   bool
 	Timestamp *big.Int
 }
 type BlockIn struct {
@@ -176,43 +176,68 @@ func InsertGenesis(gAlloc map[common.Address][]byte, block *types.Block) {
 }
 
 type IPendingTx struct {
-	Tx     *types.Transaction
-	Trace  interface{}
-	State  *state.StateDB
-	Signer types.Signer
+	Tx      *types.Transaction
+	Trace   interface{}
+	State   *state.StateDB
+	Signer  types.Signer
 	Receipt *types.Receipt
-	Block *types.Block
+	Block   *types.Block
 }
 
-func AddPendingTx(pTx *IPendingTx) {
-	var tReceipts types.Receipts
-	txBlock := TxBlock{
-		Tx: pTx.Tx,
-		Trace: pTx.Trace,
-		Pending: true,
-		Timestamp: big.NewInt(time.Now().Unix()),
+func AddPendingTxs(pTxs []*IPendingTx) {
+	var wg sync.WaitGroup
+	if !ctx.GlobalBool(EthVMFlag.Name) {
+		return
 	}
-	var tBlockIn = &BlockIn{
-		Receipts: append(tReceipts, pTx.Receipt),
-		Block: pTx.Block,
-		State:pTx.State,
-		Signer:pTx.Signer,
+	ts := big.NewInt(time.Now().Unix())
+	var(
+		txs []interface{}
+		logs []interface{}
+		traces []interface{}
+	)
+	for _, pTx := range pTxs {
+		var tReceipts types.Receipts
+		txBlock := TxBlock{
+			Tx:        pTx.Tx,
+			Trace:     pTx.Trace,
+			Pending:   true,
+			Timestamp: ts,
+		}
+		var tBlockIn = &BlockIn{
+			Receipts: append(tReceipts, pTx.Receipt),
+			Block:    pTx.Block,
+			State:    pTx.State,
+			Signer:   pTx.Signer,
+		}
+		_tTx, _tLogs, _tTrace := formatTx(tBlockIn, txBlock, 0)
+		if _tTx!=nil {
+			txs = append(txs, _tTx)
+		}
+		if _tLogs!=nil {
+			logs = append(logs, _tLogs)
+		}
+		if(_tTrace != nil) {
+			traces = append(traces, _tTrace)
+		}
 	}
-	_tTx, _tLogs, _tTrace := formatTx(tBlockIn, txBlock, 0)
 	saveToDB := func(table string, values interface{}) {
+		defer wg.Done()
 		if values != nil {
 			_, err := r.DB(DB_NAME).Table(DB_Tables[table]).Insert(values, r.InsertOpts{
-				Conflict: "replace",
-			}).RunWrite(session)
+				Conflict: func(id r.Term, oldDoc r.Term, newDoc r.Term) interface{} {
+					return oldDoc
+				}}).RunWrite(session)
 			if err != nil {
 				panic(err)
 			}
 		}
 	}
-	go saveToDB("transactions", _tTx)
-	go saveToDB("logs", _tLogs)
-	go saveToDB("traces", _tTrace)
-	fmt.Printf("New Pending Tx %s \n", pTx.Tx.Hash().String())
+	wg.Add(3)
+	go saveToDB("transactions", txs)
+	go saveToDB("logs", logs)
+	go saveToDB("traces", traces)
+	wg.Wait()
+	//fmt.Printf("New Pending Txs %d \n", len(pTxs))
 
 }
 func formatTx(blockIn *BlockIn, txBlock TxBlock, index int) (interface{}, map[string]interface{}, map[string]interface{}) {
@@ -288,7 +313,7 @@ func formatTx(blockIn *BlockIn, txBlock TxBlock, index int) (interface{}, map[st
 		"r":                 (_r).Bytes(),
 		"s":                 (_s).Bytes(),
 		"status":            receipt.Status,
-		"pending":             txBlock.Pending,
+		"pending":           txBlock.Pending,
 		"timestamp":         txBlock.Timestamp.Bytes(),
 	}
 	rlogs := map[string]interface{}{

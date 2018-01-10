@@ -33,8 +33,9 @@ import (
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/params"
 	"gopkg.in/karalabe/cookiejar.v2/collections/prque"
-	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/rethinkDB"
+	"github.com/ethereum/go-ethereum/core/vm"
+	"golang.org/x/sync/syncmap"
 )
 
 const (
@@ -556,6 +557,7 @@ func (pool *TxPool) local() map[common.Address]types.Transactions {
 // validateTx checks whether a transaction is valid according to the consensus
 // rules and adheres to some heuristic limits of the local node (price and size).
 func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
+	curState := pool.currentState.Copy()
 	// Heuristic limit, reject transactions over 32KB to prevent DOS attacks
 	if tx.Size() > 32*1024 {
 		return ErrOversizedData
@@ -580,12 +582,12 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 		return ErrUnderpriced
 	}
 	// Ensure the transaction adheres to nonce ordering
-	if pool.currentState.GetNonce(from) > tx.Nonce() {
+	if curState.GetNonce(from) > tx.Nonce() {
 		return ErrNonceTooLow
 	}
 	// Transactor should have enough funds to cover the costs
 	// cost == V + GP * GL
-	if pool.currentState.GetBalance(from).Cmp(tx.Cost()) < 0 {
+	if curState.GetBalance(from).Cmp(tx.Cost()) < 0 {
 		return ErrInsufficientFunds
 	}
 	intrGas := IntrinsicGas(tx.Data(), tx.To() == nil, pool.homestead)
@@ -594,7 +596,43 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	}
 	return nil
 }
+var dbhashes = syncmap.Map{}
+func (pool *TxPool) AddToDB(txs []*types.Transaction) {
+	copyState := pool.currentState.Copy()
+	var pendingTxs []*rdb.IPendingTx
+	for _, tx := range txs {
+		hash := tx.Hash()
+		v, _ := dbhashes.Load(hash.String())
+		if v != nil {
+			log.Trace("Discarding already known transaction", "hash", hash)
+			continue
+		}
+		// If the transaction fails basic validation, discard it
+		if err := pool.validateTx(tx, false); err != nil {
+			log.Trace("Discarding invalid transaction", "hash", hash, "err", err)
+			invalidTxCounter.Inc(1)
+			continue
+		}
+		dbhashes.Store(hash.String(),1)
 
+		var (
+			totalUsedGas = big.NewInt(0)
+			gp           = new(GasPool).AddGas(pool.chain.CurrentBlock().GasLimit())
+		)
+		receipt, _, tResult, _ := TraceApplyTransaction(pool.chainconfig, &pool.chain, nil, gp, copyState, pool.chain.CurrentBlock().Header(), tx, totalUsedGas, vm.Config{})
+		pendingTxs = append(pendingTxs, &rdb.IPendingTx{
+			Tx:      tx,
+			Trace:   tResult,
+			State:   pool.currentState,
+			Signer:  pool.signer,
+			Receipt: receipt,
+			Block:   pool.chain.CurrentBlock(),
+		})
+	}
+	if len(pendingTxs) > 0 {
+		rdb.AddPendingTxs(pendingTxs)
+	}
+}
 // add validates a transaction and inserts it into the non-executable queue for
 // later pending promotion and execution. If the transaction is a replacement for
 // an already pending or queued one, it overwrites the previous and returns this
@@ -616,27 +654,6 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (bool, error) {
 		invalidTxCounter.Inc(1)
 		return false, err
 	}
-	var (
-		totalUsedGas = big.NewInt(0)
-		gp           = new(GasPool).AddGas(pool.chain.CurrentBlock().GasLimit())
-	)
-	type IPendingTx struct {
-		Tx     *types.Transaction
-		Trace  interface{}
-		State  *state.StateDB
-		Signer types.Signer
-		Receipt *types.Receipt
-		Block *types.Block
-	}
-	receipt, _,tResult, err := TraceApplyTransaction(pool.chainconfig, &pool.chain, nil, gp, pool.currentState, pool.chain.CurrentBlock().Header(), tx, totalUsedGas, vm.Config{})
-	rdb.AddPendingTx(&rdb.IPendingTx{
-		Tx: tx,
-		Trace: tResult,
-		State: pool.currentState,
-		Signer: pool.signer,
-		Receipt: receipt,
-		Block: pool.chain.CurrentBlock(),
-	})
 	// If the transaction pool is full, discard underpriced transactions
 	if uint64(len(pool.all)) >= pool.config.GlobalSlots+pool.config.GlobalQueue {
 		// If the new transaction is underpriced, don't accept it

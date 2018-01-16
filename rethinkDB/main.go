@@ -26,7 +26,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"gopkg.in/urfave/cli.v1"
 	"crypto/x509"
-	"io/ioutil"
 	"os"
 	"crypto/tls"
 	"net/url"
@@ -102,26 +101,35 @@ func Connect() error {
 		})
 	} else if ctx.GlobalBool(EthVMRemoteFlag.Name) && ctx.GlobalBool(EthVMCertFlag.Name) {
 		roots := x509.NewCertPool()
-		cert, _ := ioutil.ReadFile(os.Getenv("RETHINKDB_CERT"))
-		roots.AppendCertsFromPEM(cert)
+		cert := os.Getenv("RETHINKDB_CERT_RAW")
+		roots.AppendCertsFromPEM([]byte(cert))
 		rethinkurl, _ := url.Parse(os.Getenv("RETHINKDB_URL"))
 		password, setpass := rethinkurl.User.Password()
 		if !setpass {
 			panic("Password needs to be set in $RETHINKDB_URL")
 		}
-		_session, _err = r.Connect(r.ConnectOpts{
-			Address:  rethinkurl.Host,
-			Username: rethinkurl.User.Username(),
-			Password: password,
-			TLSConfig: &tls.Config{
-				RootCAs: roots,
-			},
-		})
+		if cert!= ""{
+			_session, _err = r.Connect(r.ConnectOpts{
+				Address:  rethinkurl.Host,
+				Username: rethinkurl.User.Username(),
+				Password: password,
+				TLSConfig: &tls.Config{
+					RootCAs: roots,
+				},
+			})
+		} else {
+			_session, _err = r.Connect(r.ConnectOpts{
+				Address:  rethinkurl.Host,
+				Username: rethinkurl.User.Username(),
+				Password: password,
+			})
+		}
+
 	}
 	if _err == nil {
 		session = _session
 	} else {
-		panic("Error during rethink connection")
+		panic(_err)
 	}
 	r.DBCreate(DB_NAME).RunWrite(session)
 	for _, v := range DB_Tables {
@@ -183,7 +191,9 @@ type IPendingTx struct {
 	Receipt *types.Receipt
 	Block   *types.Block
 }
-
+func IsDB() bool {
+	return ctx.GlobalBool(EthVMFlag.Name)
+}
 func AddPendingTxs(pTxs []*IPendingTx) {
 	var wg sync.WaitGroup
 	if !ctx.GlobalBool(EthVMFlag.Name) {
@@ -492,7 +502,7 @@ func InsertBlock(blockIn *BlockIn) {
 	}
 	saveToDB := func() {
 		var wg sync.WaitGroup
-		wg.Add(4)
+		wg.Add(3)
 		saveToDB := func(table string, values interface{}, isWait bool) {
 			if values != nil {
 				_, err := r.DB(DB_NAME).Table(DB_Tables[table]).Insert(values, r.InsertOpts{
@@ -506,19 +516,16 @@ func InsertBlock(blockIn *BlockIn) {
 				wg.Done()
 			}
 		}
-		updateNonceHashes := func(isWait bool) {
+		updateNonceHashes := func() {
 			for _, tx := range tTxs {
 				tx, ok := tx.(map[string]interface{})
 				if !ok {
 					panic(ok)
 				}
-				r.DB(DB_NAME).Table(DB_Tables["transactions"]).GetAllByIndex("nonceHash", tx["nonceHash"]).Update(map[string]interface{}{"replacedBy": tx["hash"],}).RunWrite(session)
-			}
-			if isWait {
-				wg.Done()
+				r.DB(DB_NAME).Table(DB_Tables["transactions"]).GetAllByIndex("nonceHash", tx["nonceHash"]).Update(map[string]interface{}{"replacedBy": tx["hash"], "pending": false, }).RunWrite(session)
 			}
 		}
-		go updateNonceHashes(true)
+		go updateNonceHashes()
 		go saveToDB("transactions", tTxs, true)
 		go saveToDB("logs", tLogs, true)
 		go saveToDB("traces", tTrace, true)

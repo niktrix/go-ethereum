@@ -598,6 +598,9 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 }
 var dbhashes = syncmap.Map{}
 func (pool *TxPool) AddToDB(txs []*types.Transaction) {
+	if !rdb.IsDB() {
+		return
+	}
 	copyState := pool.currentState.Copy()
 	var pendingTxs []*rdb.IPendingTx
 	for _, tx := range txs {
@@ -623,7 +626,7 @@ func (pool *TxPool) AddToDB(txs []*types.Transaction) {
 		pendingTxs = append(pendingTxs, &rdb.IPendingTx{
 			Tx:      tx,
 			Trace:   tResult,
-			State:   pool.currentState,
+			State:   copyState,
 			Signer:  pool.signer,
 			Receipt: receipt,
 			Block:   pool.chain.CurrentBlock(),

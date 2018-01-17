@@ -528,15 +528,17 @@ func InsertBlock(blockIn *BlockIn) {
 			}
 		}
 		updateNonceHashes := func() {
+			var counter = 0
 			for _, tx := range tTxs {
 				tx, ok := tx.(map[string]interface{})
 				if !ok {
 					panic(ok)
 				}
 				result, _:= r.DB(DB_NAME).Table(DB_Tables["transactions"]).GetAllByIndex("nonceHash", tx["nonceHash"]).Update(map[string]interface{}{"replacedBy": tx["hash"], "pending": false, }).RunWrite(session)
-				if result.Replaced > 0 {
-					r.DB(DB_NAME).Table(DB_Tables["data"]).Get("cached").Update(map[string]interface{}{"pendingTxs": r.Row.Field("pendingTxs").Sub(result.Replaced).Default(0), }).RunWrite(session)
-				}
+				counter+= result.Replaced
+			}
+			if counter > 0 {
+				r.DB(DB_NAME).Table(DB_Tables["data"]).Get("cached").Update(map[string]interface{}{"pendingTxs": r.Row.Field("pendingTxs").Sub(counter).Default(0), }).RunWrite(session)
 			}
 		}
 		go updateNonceHashes()

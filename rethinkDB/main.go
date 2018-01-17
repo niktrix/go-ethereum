@@ -517,15 +517,23 @@ func InsertBlock(blockIn *BlockIn) {
 		wg.Add(3)
 		saveToDB := func(table string, values interface{}, isWait bool) {
 			if values != nil {
-				result, err := r.DB(DB_NAME).Table(DB_Tables[table]).Insert(values, r.InsertOpts{
-					Conflict: "replace",
-				}).RunWrite(session)
+				var err error
+				if table == DB_Tables["transactions"] {
+					_, err = r.DB(DB_NAME).Table(DB_Tables[table]).Insert(values, r.InsertOpts{
+						Conflict: func(id r.Term, oldDoc r.Term, newDoc r.Term) interface{} {
+							r.Branch(oldDoc.Field("pending"), r.Table(DB_Tables["data"]).Get("cached").Field("pendingTxs").Sub(1).Default(0), nil)
+							return newDoc
+						},
+					}).RunWrite(session)
+				} else {
+					_, err = r.DB(DB_NAME).Table(DB_Tables[table]).Insert(values, r.InsertOpts{
+						Conflict: "replace",
+					}).RunWrite(session)
+				}
 				if err != nil {
 					panic(err)
 				}
-				if table == DB_Tables["transactions"] && result.Replaced > 0 {
-					r.DB(DB_NAME).Table(DB_Tables["data"]).Get("cached").Update(map[string]interface{}{"pendingTxs": r.Row.Field("pendingTxs").Sub(result.Replaced).Default(0), }).RunWrite(session)
-				}
+
 			}
 			if isWait {
 				wg.Done()
@@ -538,7 +546,9 @@ func InsertBlock(blockIn *BlockIn) {
 				if !ok {
 					panic(ok)
 				}
-				result, _:= r.DB(DB_NAME).Table(DB_Tables["transactions"]).GetAllByIndex("nonceHash", tx["nonceHash"]).Update(map[string]interface{}{"replacedBy": tx["hash"], "pending": false, }).RunWrite(session)
+				result, _:= r.DB(DB_NAME).Table(DB_Tables["transactions"]).GetAllByIndex("nonceHash", tx["nonceHash"]).Update(func(post r.Term) interface{} {
+					return r.Branch(post.Field("pending"),map[string]interface{}{"replacedBy": tx["hash"], "pending": false, },map[string]interface{}{})
+				}).RunWrite(session)
 				counter+= result.Replaced
 			}
 			if counter > 0 {

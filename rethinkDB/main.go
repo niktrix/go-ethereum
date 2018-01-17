@@ -134,7 +134,11 @@ func Connect() error {
 	}
 	r.DBCreate(DB_NAME).RunWrite(session)
 	for _, v := range DB_Tables {
-		r.DB(DB_NAME).TableCreate(v, r.TableCreateOpts{PrimaryKey: "hash"}).RunWrite(session)
+		r.DB(DB_NAME).TableCreate(v, r.TableCreateOpts{
+			PrimaryKey: "hash",
+			Shards: 3,
+			Replicas: 3,
+		}).RunWrite(session)
 	}
 	r.DB(DB_NAME).Table(DB_Tables["data"]).Insert( map[string]interface{}{
 		"hash":          "cached",

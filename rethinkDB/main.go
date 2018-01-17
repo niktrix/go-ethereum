@@ -57,6 +57,7 @@ var (
 		"transactions": "transactions",
 		"traces":       "traces",
 		"logs":         "logs",
+		"data":			"data",
 	}
 	TRACE_STR = "{transfers:[],isError:false,msg:'',result:function(){var _this=this;return{transfers:_this.transfers,isError:_this.isError,msg:_this.msg}},step:function(log,db){var _this=this;if(log.err){_this.isError=true;_this.msg=log.err.Error();return}var op=log.op;var stack=log.stack;var memory=log.memory;var transfer={};var from=log.account;if(op.toString()=='CALL'){transfer={op:'CALL',value:stack.peek(2).Bytes(),from:from,fromBalance:db.getBalance(from).Bytes(),to:big.BigToAddress(stack.peek(1)),toBalance:db.getBalance(big.BigToAddress(stack.peek(1))).Bytes(),input:memory.slice(big.ToInt(stack.peek(3)),big.ToInt(stack.peek(3))+big.ToInt(stack.peek(4)))};_this.transfers.push(transfer)}else if(op.toString()=='SELFDESTRUCT'){transfer={op:'SELFDESTRUCT',value:db.getBalance(from).Bytes(),from:from,fromBalance:db.getBalance(from).Bytes(),to:big.BigToAddress(stack.peek(0)),toBalance:db.getBalance(big.BigToAddress(stack.peek(0))).Bytes()};_this.transfers.push(transfer)}else if(op.toString()=='CREATE'){transfer={op:'CREATE',value:stack.peek(0).Bytes(),from:from,fromBalance:db.getBalance(from).Bytes(),to:big.CreateContractAddress(from,db.getNonce(from)),toBalance:db.getBalance(big.CreateContractAddress(from,db.getNonce(from))).Bytes()input:memory.slice(big.ToInt(stack.peek(1)),big.ToInt(stack.peek(1))+big.ToInt(stack.peek(2)))};_this.transfers.push(transfer)}}}"
 )
@@ -135,6 +136,10 @@ func Connect() error {
 	for _, v := range DB_Tables {
 		r.DB(DB_NAME).TableCreate(v, r.TableCreateOpts{PrimaryKey: "hash"}).RunWrite(session)
 	}
+	r.DB(DB_NAME).Table(DB_Tables["data"]).Insert( map[string]interface{}{
+		"hash":          "cached",
+		"pendingTxs":  0,
+	}).RunWrite(session)
 	r.DB(DB_NAME).Table(DB_Tables["transactions"]).IndexCreate("nonceHash").RunWrite(session)
 	r.DB(DB_NAME).Table(DB_Tables["blocks"]).IndexCreate("intNumber").RunWrite(session)
 	r.DB(DB_NAME).Table(DB_Tables["traces"]).IndexCreateFunc("trace_from", r.Row.Field("trace").Field("transfers").Field("from"), r.IndexCreateOpts{Multi: true}).RunWrite(session)
@@ -233,12 +238,15 @@ func AddPendingTxs(pTxs []*IPendingTx) {
 	saveToDB := func(table string, values interface{}) {
 		defer wg.Done()
 		if values != nil {
-			_, err := r.DB(DB_NAME).Table(DB_Tables[table]).Insert(values, r.InsertOpts{
+			result, err := r.DB(DB_NAME).Table(DB_Tables[table]).Insert(values, r.InsertOpts{
 				Conflict: func(id r.Term, oldDoc r.Term, newDoc r.Term) interface{} {
 					return oldDoc
 				}}).RunWrite(session)
 			if err != nil {
 				panic(err)
+			}
+			if result.Inserted > 0 {
+				r.DB(DB_NAME).Table(DB_Tables["data"]).Get("cached").Update(map[string]interface{}{"pendingTxs": r.Row.Field("pendingTxs").Add(result.Inserted).Default(0), }).RunWrite(session)
 			}
 		}
 	}
@@ -505,11 +513,14 @@ func InsertBlock(blockIn *BlockIn) {
 		wg.Add(3)
 		saveToDB := func(table string, values interface{}, isWait bool) {
 			if values != nil {
-				_, err := r.DB(DB_NAME).Table(DB_Tables[table]).Insert(values, r.InsertOpts{
+				result, err := r.DB(DB_NAME).Table(DB_Tables[table]).Insert(values, r.InsertOpts{
 					Conflict: "replace",
 				}).RunWrite(session)
 				if err != nil {
 					panic(err)
+				}
+				if table == DB_Tables["transactions"] && result.Replaced > 0 {
+					r.DB(DB_NAME).Table(DB_Tables["data"]).Get("cached").Update(map[string]interface{}{"pendingTxs": r.Row.Field("pendingTxs").Sub(result.Replaced).Default(0), }).RunWrite(session)
 				}
 			}
 			if isWait {
@@ -522,7 +533,10 @@ func InsertBlock(blockIn *BlockIn) {
 				if !ok {
 					panic(ok)
 				}
-				r.DB(DB_NAME).Table(DB_Tables["transactions"]).GetAllByIndex("nonceHash", tx["nonceHash"]).Update(map[string]interface{}{"replacedBy": tx["hash"], "pending": false, }).RunWrite(session)
+				result, _:= r.DB(DB_NAME).Table(DB_Tables["transactions"]).GetAllByIndex("nonceHash", tx["nonceHash"]).Update(map[string]interface{}{"replacedBy": tx["hash"], "pending": false, }).RunWrite(session)
+				if result.Replaced > 0 {
+					r.DB(DB_NAME).Table(DB_Tables["data"]).Get("cached").Update(map[string]interface{}{"pendingTxs": r.Row.Field("pendingTxs").Sub(result.Replaced).Default(0), }).RunWrite(session)
+				}
 			}
 		}
 		go updateNonceHashes()

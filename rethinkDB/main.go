@@ -136,8 +136,6 @@ func Connect() error {
 	for _, v := range DB_Tables {
 		r.DB(DB_NAME).TableCreate(v, r.TableCreateOpts{
 			PrimaryKey: "hash",
-			Shards:     3,
-			Replicas:   3,
 		}).RunWrite(session)
 	}
 	r.DB(DB_NAME).Table(DB_Tables["data"]).Insert(map[string]interface{}{
@@ -320,11 +318,11 @@ func formatTx(blockIn *BlockIn, txBlock TxBlock, index int) (interface{}, map[st
 			}
 		}(),
 		"toBalance":         toBalance.Bytes(),
-		"gasUsed":           receipt.GasUsed.Bytes(),
-		"cumulativeGasUsed": receipt.CumulativeGasUsed.Bytes(),
+		"gasUsed":           big.NewInt(int64(receipt.GasUsed)).Bytes(),
+		"cumulativeGasUsed": big.NewInt(int64(receipt.CumulativeGasUsed)).Bytes(),
 		"contractAddress":   nil,
 		"logsBloom":         receipt.Bloom.Bytes(),
-		"gas":               tx.Gas().Bytes(),
+		"gas":               big.NewInt(int64(tx.Gas())).Bytes(),
 		"gasPrice":          tx.GasPrice().Bytes(),
 		"hash":              tx.Hash().Bytes(),
 		"nonceHash":         crypto.Keccak256Hash(from.Bytes(), big.NewInt(int64(tx.Nonce())).Bytes()).Bytes(),
@@ -460,8 +458,8 @@ func InsertBlock(blockIn *BlockIn) {
 			}(),
 			"extraData":         head.Extra,
 			"size":              big.NewInt(block.Size().Int64()).Bytes(),
-			"gasLimit":          head.GasLimit.Bytes(),
-			"gasUsed":           head.GasUsed.Bytes(),
+			"gasLimit":          big.NewInt(int64(head.GasLimit)).Bytes(),
+			"gasUsed":           big.NewInt(int64(head.GasUsed)).Bytes(),
 			"timestamp":         head.Time.Bytes(),
 			"transactionsRoot":  head.TxHash.Bytes(),
 			"receiptsRoot":      head.ReceiptHash.Bytes(),

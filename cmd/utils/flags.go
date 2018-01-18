@@ -31,6 +31,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/accounts/keystore"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/fdlimit"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/clique"
 	"github.com/ethereum/go-ethereum/consensus/ethash"
@@ -96,7 +97,7 @@ func NewApp(gitCommit, usage string) *cli.App {
 	//app.Authors = nil
 	app.Email = ""
 	app.Version = params.Version
-	if gitCommit != "" {
+	if len(gitCommit) >= 8 {
 		app.Version += "-" + gitCommit[:8]
 	}
 	app.Usage = usage
@@ -313,7 +314,7 @@ var (
 	TargetGasLimitFlag = cli.Uint64Flag{
 		Name:  "targetgaslimit",
 		Usage: "Target gas limit sets the artificial target gas floor for the blocks to mine",
-		Value: params.GenesisGasLimit.Uint64(),
+		Value: params.GenesisGasLimit,
 	}
 	EtherbaseFlag = cli.StringFlag{
 		Name:  "etherbase",
@@ -721,10 +722,10 @@ func setIPC(ctx *cli.Context, cfg *node.Config) {
 // makeDatabaseHandles raises out the number of allowed file handles per process
 // for Geth and returns half of the allowance to assign to the database.
 func makeDatabaseHandles() int {
-	if err := raiseFdLimit(2048); err != nil {
+	if err := fdlimit.Raise(2048); err != nil {
 		Fatalf("Failed to raise file descriptor allowance: %v", err)
 	}
-	limit, err := getFdLimit()
+	limit, err := fdlimit.Current()
 	if err != nil {
 		Fatalf("Failed to retrieve file descriptor allowance: %v", err)
 	}
@@ -746,6 +747,12 @@ func MakeAddress(ks *keystore.KeyStore, account string) (accounts.Account, error
 	if err != nil || index < 0 {
 		return accounts.Account{}, fmt.Errorf("invalid account address or index %q", account)
 	}
+	log.Warn("-------------------------------------------------------------------")
+	log.Warn("Referring to accounts by order in the keystore folder is dangerous!")
+	log.Warn("This functionality is deprecated and will be removed in the future!")
+	log.Warn("Please use explicit addresses! (can search via `geth account list`)")
+	log.Warn("-------------------------------------------------------------------")
+
 	accs := ks.Accounts()
 	if len(accs) <= index {
 		return accounts.Account{}, fmt.Errorf("index %d higher than number of accounts %d", index, len(accs))
@@ -762,15 +769,6 @@ func setEtherbase(ctx *cli.Context, ks *keystore.KeyStore, cfg *eth.Config) {
 			Fatalf("Option %q: %v", EtherbaseFlag.Name, err)
 		}
 		cfg.Etherbase = account.Address
-		return
-	}
-	accounts := ks.Accounts()
-	if (cfg.Etherbase == common.Address{}) {
-		if len(accounts) > 0 {
-			cfg.Etherbase = accounts[0].Address
-		} else {
-			log.Warn("No etherbase set and no accounts found as default")
-		}
 	}
 }
 
@@ -1106,9 +1104,9 @@ func RegisterEthService(stack *node.Node, cfg *eth.Config) {
 }
 
 // RegisterDashboardService adds a dashboard to the stack.
-func RegisterDashboardService(stack *node.Node, cfg *dashboard.Config) {
+func RegisterDashboardService(stack *node.Node, cfg *dashboard.Config, commit string) {
 	stack.Register(func(ctx *node.ServiceContext) (node.Service, error) {
-		return dashboard.New(cfg)
+		return dashboard.New(cfg, commit)
 	})
 }
 
@@ -1141,7 +1139,7 @@ func RegisterEthStatsService(stack *node.Node, url string) {
 // SetupNetwork configures the system for either the main net or some test network.
 func SetupNetwork(ctx *cli.Context) {
 	// TODO(fjl): move target gas limit into config
-	params.TargetGasLimit = new(big.Int).SetUint64(ctx.GlobalUint64(TargetGasLimitFlag.Name))
+	params.TargetGasLimit = ctx.GlobalUint64(TargetGasLimitFlag.Name)
 }
 
 // MakeChainDatabase open an LevelDB using the flags passed to the client and will hard crash if it fails.

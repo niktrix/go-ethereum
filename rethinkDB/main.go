@@ -57,7 +57,7 @@ var (
 		"transactions": "transactions",
 		"traces":       "traces",
 		"logs":         "logs",
-		"data":			"data",
+		"data":         "data",
 	}
 	TRACE_STR = "{transfers:[],isError:false,msg:'',result:function(){var _this=this;return{transfers:_this.transfers,isError:_this.isError,msg:_this.msg}},step:function(log,db){var _this=this;if(log.err){_this.isError=true;_this.msg=log.err.Error();return}var op=log.op;var stack=log.stack;var memory=log.memory;var transfer={};var from=log.account;if(op.toString()=='CALL'){transfer={op:'CALL',value:stack.peek(2).Bytes(),from:from,fromBalance:db.getBalance(from).Bytes(),to:big.BigToAddress(stack.peek(1)),toBalance:db.getBalance(big.BigToAddress(stack.peek(1))).Bytes(),input:memory.slice(big.ToInt(stack.peek(3)),big.ToInt(stack.peek(3))+big.ToInt(stack.peek(4)))};_this.transfers.push(transfer)}else if(op.toString()=='SELFDESTRUCT'){transfer={op:'SELFDESTRUCT',value:db.getBalance(from).Bytes(),from:from,fromBalance:db.getBalance(from).Bytes(),to:big.BigToAddress(stack.peek(0)),toBalance:db.getBalance(big.BigToAddress(stack.peek(0))).Bytes()};_this.transfers.push(transfer)}else if(op.toString()=='CREATE'){transfer={op:'CREATE',value:stack.peek(0).Bytes(),from:from,fromBalance:db.getBalance(from).Bytes(),to:big.CreateContractAddress(from,db.getNonce(from)),toBalance:db.getBalance(big.CreateContractAddress(from,db.getNonce(from))).Bytes()input:memory.slice(big.ToInt(stack.peek(1)),big.ToInt(stack.peek(1))+big.ToInt(stack.peek(2)))};_this.transfers.push(transfer)}}}"
 )
@@ -109,7 +109,7 @@ func Connect() error {
 		if !setpass {
 			panic("Password needs to be set in $RETHINKDB_URL")
 		}
-		if cert!= ""{
+		if cert != "" {
 			_session, _err = r.Connect(r.ConnectOpts{
 				Address:  rethinkurl.Host,
 				Username: rethinkurl.User.Username(),
@@ -136,13 +136,13 @@ func Connect() error {
 	for _, v := range DB_Tables {
 		r.DB(DB_NAME).TableCreate(v, r.TableCreateOpts{
 			PrimaryKey: "hash",
-			Shards: 3,
-			Replicas: 3,
+			Shards:     3,
+			Replicas:   3,
 		}).RunWrite(session)
 	}
-	r.DB(DB_NAME).Table(DB_Tables["data"]).Insert( map[string]interface{}{
-		"hash":          "cached",
-		"pendingTxs":  0,
+	r.DB(DB_NAME).Table(DB_Tables["data"]).Insert(map[string]interface{}{
+		"hash":       "cached",
+		"pendingTxs": 0,
 	}).RunWrite(session)
 	r.DB(DB_NAME).Table(DB_Tables["transactions"]).IndexCreate("nonceHash").RunWrite(session)
 	r.DB(DB_NAME).Table(DB_Tables["blocks"]).IndexCreate("intNumber").RunWrite(session)
@@ -200,6 +200,7 @@ type IPendingTx struct {
 	Receipt *types.Receipt
 	Block   *types.Block
 }
+
 func IsDB() bool {
 	return ctx.GlobalBool(EthVMFlag.Name)
 }
@@ -209,9 +210,9 @@ func AddPendingTxs(pTxs []*IPendingTx) {
 		return
 	}
 	ts := big.NewInt(time.Now().Unix())
-	var(
-		txs []interface{}
-		logs []interface{}
+	var (
+		txs    []interface{}
+		logs   []interface{}
 		traces []interface{}
 	)
 	for _, pTx := range pTxs {
@@ -229,13 +230,13 @@ func AddPendingTxs(pTxs []*IPendingTx) {
 			Signer:   pTx.Signer,
 		}
 		_tTx, _tLogs, _tTrace := formatTx(tBlockIn, txBlock, 0)
-		if _tTx!=nil {
+		if _tTx != nil {
 			txs = append(txs, _tTx)
 		}
-		if _tLogs!=nil {
+		if _tLogs != nil {
 			logs = append(logs, _tLogs)
 		}
-		if(_tTrace != nil) {
+		if (_tTrace != nil) {
 			traces = append(traces, _tTrace)
 		}
 	}
@@ -250,7 +251,7 @@ func AddPendingTxs(pTxs []*IPendingTx) {
 				panic(err)
 			}
 			if result.Inserted > 0 {
-				r.DB(DB_NAME).Table(DB_Tables["data"]).Get("cached").Update(map[string]interface{}{"pendingTxs": r.Row.Field("pendingTxs").Add(result.Inserted).Default(0), }).RunWrite(session)
+				r.DB(DB_NAME).Table(DB_Tables["data"]).Get("cached").Update(map[string]interface{}{"pendingTxs": r.Row.Field("pendingTxs").Add(result.Inserted).Default(0),}).RunWrite(session)
 			}
 		}
 	}
@@ -518,12 +519,18 @@ func InsertBlock(blockIn *BlockIn) {
 		saveToDB := func(table string, values interface{}, isWait bool) {
 			if values != nil {
 				var err error
-				if table == DB_Tables["transactions"] {
+				if table == DB_Tables["transactions"] && len(values.([]interface{})) > 0 {
 					_, err = r.DB(DB_NAME).Table(DB_Tables[table]).Insert(values, r.InsertOpts{
-						Conflict: func(id r.Term, oldDoc r.Term, newDoc r.Term) interface{} {
-							r.Branch(oldDoc.Field("pending"), r.Table(DB_Tables["data"]).Get("cached").Field("pendingTxs").Sub(1).Default(0), nil)
-							return newDoc
-						},
+						Conflict:      "replace",
+						ReturnChanges: true,
+					}).Field("changes").ForEach(func(change r.Term) interface{} {
+						return r.Branch(
+							change.Field("old_val"), change.Field("old_val").Field("pending").Branch(
+								r.DB(DB_NAME).Table(DB_Tables["data"]).Get("cached").Update(
+									func(post r.Term) interface{} {
+										return map[string]interface{}{"pendingTxs": post.Field("pendingTxs").Sub(1).Default(0),}
+						}), r.DB(DB_NAME).Table(DB_Tables["data"]).Get("cached").Update(map[string]interface{}{})),
+						r.DB(DB_NAME).Table(DB_Tables["data"]).Get("cached").Update(map[string]interface{}{}))
 					}).RunWrite(session)
 				} else {
 					_, err = r.DB(DB_NAME).Table(DB_Tables[table]).Insert(values, r.InsertOpts{
@@ -540,20 +547,29 @@ func InsertBlock(blockIn *BlockIn) {
 			}
 		}
 		updateNonceHashes := func() {
-			var counter = 0
 			for _, tx := range tTxs {
 				tx, ok := tx.(map[string]interface{})
 				if !ok {
 					panic(ok)
 				}
-				result, _:= r.DB(DB_NAME).Table(DB_Tables["transactions"]).GetAllByIndex("nonceHash", tx["nonceHash"]).Update(func(post r.Term) interface{} {
-					return r.Branch(post.Field("pending"),map[string]interface{}{"replacedBy": tx["hash"], "pending": false, },map[string]interface{}{})
+				_, err:= r.Expr(map[string]interface{}{"changes": make([]interface{},0),}).Merge(r.DB(DB_NAME).Table(DB_Tables["transactions"]).GetAllByIndex("nonceHash", tx["nonceHash"]).Update(map[string]interface{}{"replacedBy": tx["hash"], "pending": false,}, r.UpdateOpts{
+					ReturnChanges:true,
+				})).Field("changes").ForEach(func(change r.Term) interface{} {
+					return r.Branch(
+						change.Field("old_val"), change.Field("old_val").Field("pending").Branch(
+							r.DB(DB_NAME).Table(DB_Tables["data"]).Get("cached").Update(
+								func(post r.Term) interface{} {
+									return map[string]interface{}{"pendingTxs": post.Field("pendingTxs").Sub(1).Default(0),}
+								}), r.DB(DB_NAME).Table(DB_Tables["data"]).Get("cached").Update(map[string]interface{}{})),
+						r.DB(DB_NAME).Table(DB_Tables["data"]).Get("cached").Update(map[string]interface{}{}))
 				}).RunWrite(session)
-				counter+= result.Replaced
+				if err != nil {
+					panic(err)
+				}
 			}
-			if counter > 0 {
+			/*if counter > 0 {
 				r.DB(DB_NAME).Table(DB_Tables["data"]).Get("cached").Update(map[string]interface{}{"pendingTxs": r.Row.Field("pendingTxs").Sub(counter).Default(0), }).RunWrite(session)
-			}
+			} */
 		}
 		go updateNonceHashes()
 		go saveToDB("transactions", tTxs, true)

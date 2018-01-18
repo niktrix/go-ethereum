@@ -248,7 +248,7 @@ func AddPendingTxs(pTxs []*IPendingTx) {
 			if err != nil {
 				panic(err)
 			}
-			if result.Inserted > 0 {
+			if table== DB_Tables["transactions"] && result.Inserted > 0 {
 				r.DB(DB_NAME).Table(DB_Tables["data"]).Get("cached").Update(map[string]interface{}{"pendingTxs": r.Row.Field("pendingTxs").Add(result.Inserted).Default(0),}).RunWrite(session)
 			}
 		}
@@ -520,7 +520,7 @@ func InsertBlock(blockIn *BlockIn) {
 				if table == DB_Tables["transactions"] && len(values.([]interface{})) > 0 {
 					_, err = r.DB(DB_NAME).Table(DB_Tables[table]).Insert(values, r.InsertOpts{
 						Conflict:      "replace",
-						ReturnChanges: true,
+						ReturnChanges: "always",
 					}).Field("changes").ForEach(func(change r.Term) interface{} {
 						return r.Branch(
 							change.Field("old_val"), change.Field("old_val").Field("pending").Branch(

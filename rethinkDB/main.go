@@ -143,6 +143,9 @@ func Connect() error {
 		"pendingTxs": 0,
 	}).RunWrite(session)
 	r.DB(DB_NAME).Table(DB_Tables["transactions"]).IndexCreate("nonceHash").RunWrite(session)
+	r.DB(DB_NAME).Table(DB_Tables["transactions"]).IndexCreate("blockIntNumber").RunWrite(session)
+	r.DB(DB_NAME).Table(DB_Tables["traces"]).IndexCreate("blockIntNumber").RunWrite(session)
+	r.DB(DB_NAME).Table(DB_Tables["logs"]).IndexCreate("blockIntNumber").RunWrite(session)
 	r.DB(DB_NAME).Table(DB_Tables["blocks"]).IndexCreate("intNumber").RunWrite(session)
 	r.DB(DB_NAME).Table(DB_Tables["traces"]).IndexCreateFunc("trace_from", r.Row.Field("trace").Field("transfers").Field("from"), r.IndexCreateOpts{Multi: true}).RunWrite(session)
 	r.DB(DB_NAME).Table(DB_Tables["traces"]).IndexCreateFunc("trace_to", r.Row.Field("trace").Field("transfers").Field("to"), r.IndexCreateOpts{Multi: true}).RunWrite(session)

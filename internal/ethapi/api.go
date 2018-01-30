@@ -42,8 +42,6 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/util"
-	state2 "github.com/ethereum/go-ethereum/core/state"
-	"github.com/ethereum/go-ethereum/ethdb"
 )
 
 const (
@@ -583,7 +581,7 @@ type CallArgs struct {
 }
 
 
-func (s *PublicBlockChainAPI) LiveCall(ctx context.Context, args CallArgs) (hexutil.Bytes, error) {
+/*func (s *PublicBlockChainAPI) LiveCall(ctx context.Context, args CallArgs) (hexutil.Bytes, error) {
 	cachedb, _ := ethdb.NewCacheDB(s.b.ChainDb())
 	state, _ := state2.New(s.b.CurrentBlock().Root(), state2.NewDatabase(cachedb))
 	header := s.b.CurrentBlock().Header()
@@ -632,7 +630,7 @@ func (s *PublicBlockChainAPI) LiveCall(ctx context.Context, args CallArgs) (hexu
 		return nil, err
 	}
 	return (hexutil.Bytes)(res), err
-}
+}*/
 func (s *PublicBlockChainAPI) doCall(ctx context.Context, args CallArgs, blockNr rpc.BlockNumber, vmCfg vm.Config) ([]byte, uint64, bool, error) {
 	defer func(start time.Time) { log.Debug("Executing EVM call finished", "runtime", time.Since(start)) }(time.Now())
 	state, header, err := s.b.StateAndHeaderByNumber(ctx, blockNr)

@@ -42,6 +42,8 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/util"
+	state2 "github.com/ethereum/go-ethereum/core/state"
+	"github.com/ethereum/go-ethereum/ethdb"
 )
 
 const (
@@ -580,9 +582,59 @@ type CallArgs struct {
 	Data     hexutil.Bytes   `json:"data"`
 }
 
+
+func (s *PublicBlockChainAPI) LiveCall(ctx context.Context, args CallArgs) (hexutil.Bytes, error) {
+	cachedb, _ := ethdb.NewCacheDB(s.b.ChainDb())
+	state, _ := state2.New(s.b.CurrentBlock().Root(), state2.NewDatabase(cachedb))
+	header := s.b.CurrentBlock().Header()
+	if state == nil  {
+		return nil, errors.New("state error")
+	}
+	// Set sender address or use a default if none specified
+	addr := args.From
+	// Set default gas & gas price if none were set
+	gas, gasPrice := uint64(args.Gas), args.GasPrice.ToInt()
+	if gas == 0 {
+		gas = 50000000
+	}
+	if gasPrice.Sign() == 0 {
+		gasPrice = new(big.Int).SetUint64(defaultGasPrice)
+	}
+
+	// Create new call message
+	msg := types.NewMessage(addr, args.To, 0, args.Value.ToInt(), gas, gasPrice, args.Data, false)
+
+	// Setup context so it may be cancelled the call has completed
+	// or, in case of unmetered gas, setup a context with a timeout.
+	var cancel context.CancelFunc
+	ctx, cancel = context.WithTimeout(ctx, time.Second*5)
+	// Make sure the context is cancelled when the call has completed
+	// this makes sure resources are cleaned up.
+	defer func() { cancel() }()
+
+	// Get a new instance of the EVM.
+	evm, vmError, err := s.b.GetEVM(ctx, msg, state, header, vm.Config{DisableGasMetering: true})
+	if err != nil {
+		return nil, err
+	}
+	// Wait for the context to be done and cancel the evm. Even if the
+	// EVM has finished, cancelling may be done (repeatedly)
+	go func() {
+		<-ctx.Done()
+		evm.Cancel()
+	}()
+
+	// Setup the gas pool (also for unmetered requests)
+	// and apply the message.
+	gp := new(core.GasPool).AddGas(math.MaxUint64)
+	res, _, _, err := core.ApplyMessage(evm, msg, gp)
+	if err := vmError(); err != nil {
+		return nil, err
+	}
+	return (hexutil.Bytes)(res), err
+}
 func (s *PublicBlockChainAPI) doCall(ctx context.Context, args CallArgs, blockNr rpc.BlockNumber, vmCfg vm.Config) ([]byte, uint64, bool, error) {
 	defer func(start time.Time) { log.Debug("Executing EVM call finished", "runtime", time.Since(start)) }(time.Now())
-
 	state, header, err := s.b.StateAndHeaderByNumber(ctx, blockNr)
 	if state == nil || err != nil {
 		return nil, 0, false, err

@@ -171,6 +171,42 @@
 			"revisionTime": "2017-01-17T22:23:42Z"
 		},
 		{
+			"checksumSHA1": "VXeS+lMPK7fHbRLNxLgx3WCb+DI=",
+			"path": "github.com/go-redis/redis",
+			"revision": "2c11cbf01afb690650ad9b115e2c19f521c85201",
+			"revisionTime": "2018-01-25T08:05:55Z"
+		},
+		{
+			"checksumSHA1": "Gq7KK0WW5C4L0dlMLyCcDpO2eF8=",
+			"path": "github.com/go-redis/redis/internal",
+			"revision": "2c11cbf01afb690650ad9b115e2c19f521c85201",
+			"revisionTime": "2018-01-25T08:05:55Z"
+		},
+		{
+			"checksumSHA1": "GQZsUVg/+6UpQAYpc4luMvMutSI=",
+			"path": "github.com/go-redis/redis/internal/consistenthash",
+			"revision": "2c11cbf01afb690650ad9b115e2c19f521c85201",
+			"revisionTime": "2018-01-25T08:05:55Z"
+		},
+		{
+			"checksumSHA1": "GE9tg94JwCzMbBwn3Q2LaFs5Rx0=",
+			"path": "github.com/go-redis/redis/internal/hashtag",
+			"revision": "2c11cbf01afb690650ad9b115e2c19f521c85201",
+			"revisionTime": "2018-01-25T08:05:55Z"
+		},
+		{
+			"checksumSHA1": "AtcctlDri3zLh6U5sDnT4NULEtw=",
+			"path": "github.com/go-redis/redis/internal/pool",
+			"revision": "2c11cbf01afb690650ad9b115e2c19f521c85201",
+			"revisionTime": "2018-01-25T08:05:55Z"
+		},
+		{
+			"checksumSHA1": "mfVuPZ75Jgnt2olOTV5qLwn7uG4=",
+			"path": "github.com/go-redis/redis/internal/proto",
+			"revision": "2c11cbf01afb690650ad9b115e2c19f521c85201",
+			"revisionTime": "2018-01-25T08:05:55Z"
+		},
+		{
 			"checksumSHA1": "KZ3QD2QgUS4RcoKiA3mn5pSlJxQ=",
 			"path": "github.com/go-stack/stack",
 			"revision": "54be5f394ed2c3e19dac9134a40a95ba5a017f7b",

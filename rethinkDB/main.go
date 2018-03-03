@@ -462,7 +462,7 @@ func InsertBlock(blockIn *BlockIn) {
 				return (new(big.Int).Add(block.Difficulty(), blockIn.PrevTd)).Bytes()
 			}(),
 			"extraData":         head.Extra,
-			"size":              big.NewInt(block.Size().Int64()).Bytes(),
+			"size":              big.NewInt(int64(hexutil.Uint64(block.Size()))).Bytes(),
 			"gasLimit":          big.NewInt(int64(head.GasLimit)).Bytes(),
 			"gasUsed":           big.NewInt(int64(head.GasUsed)).Bytes(),
 			"timestamp":         head.Time.Bytes(),

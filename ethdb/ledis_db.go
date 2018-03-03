@@ -112,3 +112,8 @@ func (b *ledisBatch) Write() error {
 func (b *ledisBatch) ValueSize() int {
 	return b.size
 }
+
+func (b *ledisBatch) Reset() {
+	b.writes = b.writes[:0]
+	b.size = 0
+}

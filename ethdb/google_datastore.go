@@ -113,3 +113,7 @@ func (b *dataStoreBatch) Write() error {
 func (b *dataStoreBatch) ValueSize() int {
 	return b.size
 }
+func (b *dataStoreBatch) Reset() {
+	b.writes = b.writes[:0]
+	b.size = 0
+}

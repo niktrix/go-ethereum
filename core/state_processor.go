@@ -98,7 +98,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		State: statedb,
 		PrevTd: p.bc.GetTd(block.ParentHash(), block.NumberU64()-1),
 		Receipts: receipts,
-		Signer: types.MakeSigner(p.bc.config, block.Header().Number),
+		Signer: types.MakeSigner(p.bc.Config(), block.Header().Number),
 		IsUncle: false,
 		TxFees: txFees,
 		BlockRewardFunc: func(block *types.Block) (*big.Int, *big.Int){

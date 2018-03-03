@@ -107,3 +107,8 @@ func (b *cacheBatch) Write() error {
 func (b *cacheBatch) ValueSize() int {
 	return b.size
 }
+
+func (b *cacheBatch) Reset() {
+	b.writes = b.writes[:0]
+	b.size = 0
+}

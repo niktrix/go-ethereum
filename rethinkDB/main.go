@@ -285,6 +285,7 @@ func formatTx(blockIn *BlockIn, txBlock TxBlock, index int) (interface{}, map[st
 	formatTopics := func(topics []common.Hash) ([][]byte) {
 		arrTopics := make([][]byte, len(topics))
 		for i, topic := range topics {
+			//fmt.Println(topic)
 			arrTopics[i] = topic.Bytes()
 		}
 		return arrTopics
@@ -308,6 +309,7 @@ func formatTx(blockIn *BlockIn, txBlock TxBlock, index int) (interface{}, map[st
 		return dLogs
 	}
 	rfields := map[string]interface{}{
+		"cofrom":           nil,
 		"root":             blockIn.Block.Header().ReceiptHash.Bytes(),
 		"blockHash":        blockIn.Block.Hash().Bytes(),
 		"blockNumber":      head.Number.Bytes(),
@@ -391,6 +393,16 @@ func formatTx(blockIn *BlockIn, txBlock TxBlock, index int) (interface{}, map[st
 	if receipt.ContractAddress != (common.Address{}) {
 		rfields["contractAddress"] = receipt.ContractAddress
 	}
+
+        arr := make([]interface{}, 2)
+	if tx.To() == nil {
+		arr[0] = rfields["contractAddress"]
+	} else {
+		arr[0] = rfields["to"]
+	}
+	arr[1] = rfields["from"]
+	rfields["cofrom"] = arr
+
 	return rfields, rlogs, rTrace
 }
 func InsertBlock(blockIn *BlockIn) {
@@ -491,6 +503,7 @@ func InsertBlock(blockIn *BlockIn) {
 		return bfields, nil
 	}
 	tHashes, tTxs, tLogs, tTrace := processTxs(blockIn.TxBlocks)
+    	//fmt.Println("tTxs", tTxs)
 	block, _ := formatBlock(blockIn.Block, tHashes)
 	if (block["intNumber"] != 0) {
 		tTrace = append(tTrace, map[string]interface{}{

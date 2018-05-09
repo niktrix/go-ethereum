@@ -144,7 +144,7 @@ func Connect() error {
 		"pendingTxs": 0,
 	}).RunWrite(session)
 	r.DB(DB_NAME).Table(DB_Tables["transactions"]).IndexCreate("nonceHash").RunWrite(session)
-	r.DB(DB_NAME).Table(DB_Tables["transactions"]).IndexCreate("cofrom").RunWrite(session)
+	r.DB(DB_NAME).Table(DB_Tables["transactions"]).IndexCreate("cofrom", r.IndexCreateOpts{Multi: true}).RunWrite(session)
 	r.DB(DB_NAME).Table(DB_Tables["transactions"]).IndexCreate("to").RunWrite(session)
 	r.DB(DB_NAME).Table(DB_Tables["transactions"]).IndexCreate("from").RunWrite(session)
 	r.DB(DB_NAME).Table(DB_Tables["transactions"]).IndexCreateFunc("numberAndHash",

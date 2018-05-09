@@ -17,22 +17,23 @@
 package rdb
 
 import (
-	r "gopkg.in/gorethink/gorethink.v3"
-	"github.com/ethereum/go-ethereum/core/types"
-	"fmt"
-	"github.com/ethereum/go-ethereum/common/hexutil"
-	"math/big"
-	"github.com/ethereum/go-ethereum/core/state"
-	"github.com/ethereum/go-ethereum/common"
-	"gopkg.in/urfave/cli.v1"
-	"crypto/x509"
-	"os"
 	"crypto/tls"
+	"crypto/x509"
+	"fmt"
+	"math/big"
 	"net/url"
+	"os"
 	"sync"
+	"time"
+
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core/state"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
-	"time"
+	r "gopkg.in/gorethink/gorethink.v3"
+	"gopkg.in/urfave/cli.v1"
 )
 
 var (
@@ -143,11 +144,14 @@ func Connect() error {
 		"pendingTxs": 0,
 	}).RunWrite(session)
 	r.DB(DB_NAME).Table(DB_Tables["transactions"]).IndexCreate("nonceHash").RunWrite(session)
+	r.DB(DB_NAME).Table(DB_Tables["transactions"]).IndexCreate("cofrom").RunWrite(session)
+	r.DB(DB_NAME).Table(DB_Tables["transactions"]).IndexCreate("to").RunWrite(session)
+	r.DB(DB_NAME).Table(DB_Tables["transactions"]).IndexCreate("from").RunWrite(session)
 	r.DB(DB_NAME).Table(DB_Tables["transactions"]).IndexCreateFunc("numberAndHash",
 		[]interface{}{
 			r.Row.Field("blockIntNumber"),
 			r.Row.Field("hash"),
-		},).RunWrite(session)
+		}).RunWrite(session)
 	r.DB(DB_NAME).Table(DB_Tables["blocks"]).IndexCreate("intNumber").RunWrite(session)
 	r.DB(DB_NAME).Table(DB_Tables["traces"]).IndexCreateFunc("trace_from", r.Row.Field("trace").Field("transfers").Field("from"), r.IndexCreateOpts{Multi: true}).RunWrite(session)
 	r.DB(DB_NAME).Table(DB_Tables["traces"]).IndexCreateFunc("trace_to", r.Row.Field("trace").Field("transfers").Field("to"), r.IndexCreateOpts{Multi: true}).RunWrite(session)
@@ -239,7 +243,7 @@ func AddPendingTxs(pTxs []*IPendingTx) {
 		if _tLogs != nil {
 			logs = append(logs, _tLogs)
 		}
-		if (_tTrace != nil) {
+		if _tTrace != nil {
 			traces = append(traces, _tTrace)
 		}
 	}
@@ -253,8 +257,8 @@ func AddPendingTxs(pTxs []*IPendingTx) {
 			if err != nil {
 				panic(err)
 			}
-			if table== DB_Tables["transactions"] && result.Inserted > 0 {
-				r.DB(DB_NAME).Table(DB_Tables["data"]).Get("cached").Update(map[string]interface{}{"pendingTxs": r.Row.Field("pendingTxs").Add(result.Inserted).Default(0),}).RunWrite(session)
+			if table == DB_Tables["transactions"] && result.Inserted > 0 {
+				r.DB(DB_NAME).Table(DB_Tables["data"]).Get("cached").Update(map[string]interface{}{"pendingTxs": r.Row.Field("pendingTxs").Add(result.Inserted).Default(0)}).RunWrite(session)
 			}
 		}
 	}
@@ -282,7 +286,7 @@ func formatTx(blockIn *BlockIn, txBlock TxBlock, index int) (interface{}, map[st
 	if tx.To() != nil {
 		toBalance = blockIn.State.GetBalance(*tx.To())
 	}
-	formatTopics := func(topics []common.Hash) ([][]byte) {
+	formatTopics := func(topics []common.Hash) [][]byte {
 		arrTopics := make([][]byte, len(topics))
 		for i, topic := range topics {
 			//fmt.Println(topic)
@@ -290,7 +294,7 @@ func formatTx(blockIn *BlockIn, txBlock TxBlock, index int) (interface{}, map[st
 		}
 		return arrTopics
 	}
-	formatLogs := func(logs []*types.Log) (interface{}) {
+	formatLogs := func(logs []*types.Log) interface{} {
 		dLogs := make([]interface{}, len(logs))
 		for i, log := range logs {
 			logFields := map[string]interface{}{
@@ -377,7 +381,7 @@ func formatTx(blockIn *BlockIn, txBlock TxBlock, index int) (interface{}, map[st
 			}
 			isError := temp["isError"].(bool)
 			transfers, ok := temp["transfers"].([]map[string]interface{})
-			if (!isError && !ok) {
+			if !isError && !ok {
 				temp["transfers"] = getTxTransfer()
 			} else {
 				temp["transfers"] = append(transfers, getTxTransfer()[0])
@@ -394,7 +398,7 @@ func formatTx(blockIn *BlockIn, txBlock TxBlock, index int) (interface{}, map[st
 		rfields["contractAddress"] = receipt.ContractAddress
 	}
 
-        arr := make([]interface{}, 2)
+	arr := make([]interface{}, 2)
 	if tx.To() == nil {
 		arr[0] = rfields["contractAddress"]
 	} else {
@@ -420,10 +424,10 @@ func InsertBlock(blockIn *BlockIn) {
 		for i, _txBlock := range *txblocks {
 			_tTx, _tLogs, _tTrace := formatTx(blockIn, _txBlock, i)
 			tTxs = append(tTxs, _tTx)
-			if (_tLogs["logs"] != nil) {
+			if _tLogs["logs"] != nil {
 				tLogs = append(tLogs, _tLogs)
 			}
-			if (_tTrace["trace"] != nil) {
+			if _tTrace["trace"] != nil {
 				tTrace = append(tTrace, _tTrace)
 			}
 			tHashes = append(tHashes, _txBlock.Tx.Hash().Bytes())
@@ -503,9 +507,9 @@ func InsertBlock(blockIn *BlockIn) {
 		return bfields, nil
 	}
 	tHashes, tTxs, tLogs, tTrace := processTxs(blockIn.TxBlocks)
-    	//fmt.Println("tTxs", tTxs)
+	//fmt.Println("tTxs", tTxs)
 	block, _ := formatBlock(blockIn.Block, tHashes)
-	if (block["intNumber"] != 0) {
+	if block["intNumber"] != 0 {
 		tTrace = append(tTrace, map[string]interface{}{
 			"hash":           block["hash"],
 			"blockHash":      block["hash"],
@@ -544,9 +548,9 @@ func InsertBlock(blockIn *BlockIn) {
 							change.Field("old_val"), change.Field("old_val").Field("pending").Branch(
 								r.DB(DB_NAME).Table(DB_Tables["data"]).Get("cached").Update(
 									func(post r.Term) interface{} {
-										return map[string]interface{}{"pendingTxs": post.Field("pendingTxs").Sub(1).Default(0),}
-						}), r.DB(DB_NAME).Table(DB_Tables["data"]).Get("cached").Update(map[string]interface{}{})),
-						r.DB(DB_NAME).Table(DB_Tables["data"]).Get("cached").Update(map[string]interface{}{}))
+										return map[string]interface{}{"pendingTxs": post.Field("pendingTxs").Sub(1).Default(0)}
+									}), r.DB(DB_NAME).Table(DB_Tables["data"]).Get("cached").Update(map[string]interface{}{})),
+							r.DB(DB_NAME).Table(DB_Tables["data"]).Get("cached").Update(map[string]interface{}{}))
 					}).RunWrite(session)
 				} else {
 					_, err = r.DB(DB_NAME).Table(DB_Tables[table]).Insert(values, r.InsertOpts{
@@ -568,14 +572,14 @@ func InsertBlock(blockIn *BlockIn) {
 				if !ok {
 					panic(ok)
 				}
-				_, err:= r.Expr(map[string]interface{}{"changes": make([]interface{},0),}).Merge(r.DB(DB_NAME).Table(DB_Tables["transactions"]).GetAllByIndex("nonceHash", tx["nonceHash"]).Update(map[string]interface{}{"replacedBy": tx["hash"], "pending": false,}, r.UpdateOpts{
-					ReturnChanges:true,
+				_, err := r.Expr(map[string]interface{}{"changes": make([]interface{}, 0)}).Merge(r.DB(DB_NAME).Table(DB_Tables["transactions"]).GetAllByIndex("nonceHash", tx["nonceHash"]).Update(map[string]interface{}{"replacedBy": tx["hash"], "pending": false}, r.UpdateOpts{
+					ReturnChanges: true,
 				})).Field("changes").ForEach(func(change r.Term) interface{} {
 					return r.Branch(
 						change.Field("old_val"), change.Field("old_val").Field("pending").Branch(
 							r.DB(DB_NAME).Table(DB_Tables["data"]).Get("cached").Update(
 								func(post r.Term) interface{} {
-									return map[string]interface{}{"pendingTxs": post.Field("pendingTxs").Sub(1).Default(0),}
+									return map[string]interface{}{"pendingTxs": post.Field("pendingTxs").Sub(1).Default(0)}
 								}), r.DB(DB_NAME).Table(DB_Tables["data"]).Get("cached").Update(map[string]interface{}{})),
 						r.DB(DB_NAME).Table(DB_Tables["data"]).Get("cached").Update(map[string]interface{}{}))
 				}).RunWrite(session)

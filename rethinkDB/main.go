@@ -55,6 +55,7 @@ var (
 	DB_NAME   = "eth_mainnet"
 	DB_Tables = map[string]string{
 		"blocks":       "blocks",
+		"blockscache":  "blockscache",
 		"transactions": "transactions",
 		"traces":       "traces",
 		"logs":         "logs",
@@ -421,6 +422,7 @@ func InsertBlock(blockIn *BlockIn) {
 		if txblocks == nil {
 			return tHashes, tTxs, tLogs, tTrace
 		}
+
 		for i, _txBlock := range *txblocks {
 			_tTx, _tLogs, _tTrace := formatTx(blockIn, _txBlock, i)
 			tTxs = append(tTxs, _tTx)
@@ -506,9 +508,15 @@ func InsertBlock(blockIn *BlockIn) {
 		}
 		return bfields, nil
 	}
+
 	tHashes, tTxs, tLogs, tTrace := processTxs(blockIn.TxBlocks)
-	//fmt.Println("tTxs", tTxs)
+	bm := TxMetrics(blockIn, blockIn.TxBlocks)
+
 	block, _ := formatBlock(blockIn.Block, tHashes)
+
+	blockcache, _ := formatBlockMetric(blockIn, blockIn.Block, tHashes, bm)
+	fmt.Println("Block Number :", blockcache["intNumber"])
+
 	if block["intNumber"] != 0 {
 		tTrace = append(tTrace, map[string]interface{}{
 			"hash":           block["hash"],
@@ -597,8 +605,229 @@ func InsertBlock(blockIn *BlockIn) {
 		go saveToDB("traces", tTrace, true)
 		wg.Wait()
 		saveToDB("blocks", block, false)
+		saveToDB("blockscache", blockcache, false)
+
 	}
 	go saveToDB()
+}
+
+type BlockMetrics struct {
+	totalGasUsed  *big.Int
+	avgGasUsed    *big.Int
+	totalGasPrice *big.Int
+	avgGasPrice   *big.Int
+	accounts      []*common.Address
+	newAccounts   []*common.Address
+}
+
+func TxMetrics(blockIn *BlockIn, txblocks *[]TxBlock) (bm BlockMetrics) {
+	pendingTransaction := 0
+	var totalgasprice *big.Int
+	totalgasprice = big.NewInt(0)
+
+	if txblocks == nil {
+		return
+	}
+	if blockIn.IsUncle {
+		return
+	}
+	var totalgasused *big.Int
+	totalgasused = big.NewInt(0)
+	for i, _txBlock := range *txblocks {
+		_tTx := TxMetric(blockIn, _txBlock, i)
+		if _tTx.pending {
+			pendingTransaction++
+		}
+		bm.accounts = append(bm.accounts, _tTx.to)
+		bm.accounts = append(bm.accounts, _tTx.from)
+
+		if _tTx.nonce == 0 {
+			bm.newAccounts = append(bm.newAccounts, _tTx.from)
+		}
+
+		totalgasprice = totalgasprice.Add(_tTx.gasPrice, totalgasprice)
+		totalgasused = totalgasused.Add(_tTx.gasUsed, totalgasused)
+	}
+
+	if len(*txblocks) > 0 {
+		avggasprice := totalgasprice.Div(totalgasprice, big.NewInt(int64(len(*txblocks))))
+		bm.avgGasPrice = avggasprice
+	}
+	bm.totalGasPrice = totalgasprice
+	bm.totalGasUsed = totalgasused
+
+	return
+}
+
+type TXMetric struct {
+	status   uint
+	pending  bool
+	gasPrice *big.Int
+	gasUsed  *big.Int
+	rf       interface{}
+	nonce    uint64
+	to       *common.Address
+	from     *common.Address
+}
+
+//TxMetric Metric for single transaction
+func TxMetric(blockIn *BlockIn, txBlock TxBlock, index int) (tm TXMetric) {
+	tx := txBlock.Tx
+	receipt := blockIn.Receipts[index]
+	head := blockIn.Block.Header()
+	// if no reciept there is no transaction
+	if receipt == nil {
+		log.Debug("Receipt not found for transaction", "hash", tx.Hash())
+		return
+	}
+	signer := blockIn.Signer
+	from, _ := types.Sender(signer, tx)
+	_v, _r, _s := tx.RawSignatureValues()
+	var fromBalance = blockIn.State.GetBalance(from)
+	var toBalance = big.NewInt(0)
+	if tx.To() != nil {
+		toBalance = blockIn.State.GetBalance(*tx.To())
+	}
+
+	rfields := map[string]interface{}{
+		"cofrom":           nil,
+		"root":             blockIn.Block.Header().ReceiptHash.Bytes(),
+		"blockHash":        blockIn.Block.Hash().Bytes(),
+		"blockNumber":      head.Number.Bytes(),
+		"blockIntNumber":   hexutil.Uint64(head.Number.Uint64()),
+		"transactionIndex": big.NewInt(int64(index)).Bytes(),
+		"from":             from.Bytes(),
+		"fromBalance":      fromBalance.Bytes(),
+		"to": func() []byte {
+			if tx.To() == nil {
+				return common.BytesToAddress(make([]byte, 1)).Bytes()
+			} else {
+				return tx.To().Bytes()
+			}
+		}(),
+		"toBalance":         toBalance.Bytes(),
+		"gasUsed":           big.NewInt(int64(receipt.GasUsed)).Bytes(),
+		"cumulativeGasUsed": big.NewInt(int64(receipt.CumulativeGasUsed)).Bytes(),
+		"contractAddress":   nil,
+		"logsBloom":         receipt.Bloom.Bytes(),
+		"gas":               big.NewInt(int64(tx.Gas())).Bytes(),
+		"gasPrice":          tx.GasPrice().Bytes(),
+		"hash":              tx.Hash().Bytes(),
+		"nonceHash":         crypto.Keccak256Hash(from.Bytes(), big.NewInt(int64(tx.Nonce())).Bytes()).Bytes(),
+		"replacedBy":        make([]byte, 0),
+		"input":             tx.Data(),
+		"nonce":             big.NewInt(int64(tx.Nonce())).Bytes(),
+		"value":             tx.Value().Bytes(),
+		"v":                 (_v).Bytes(),
+		"r":                 (_r).Bytes(),
+		"s":                 (_s).Bytes(),
+		"status":            receipt.Status,
+		"pending":           txBlock.Pending,
+		"timestamp":         txBlock.Timestamp.Bytes(),
+	}
+
+	tm.gasPrice = tx.GasPrice()
+	tm.gasUsed = big.NewInt(int64(receipt.GasUsed))
+	tm.pending = txBlock.Pending
+	tm.status = receipt.Status
+	tm.nonce = tx.Nonce()
+	tm.to = tx.To()
+	tm.from = &from
+
+	// If the ContractAddress is 20 0x0 bytes, assume it is not a contract creation
+	if receipt.ContractAddress != (common.Address{}) {
+		rfields["contractAddress"] = receipt.ContractAddress
+	}
+
+	arr := make([]interface{}, 2)
+	if tx.To() == nil {
+		arr[0] = rfields["contractAddress"]
+	} else {
+		arr[0] = rfields["to"]
+	}
+	arr[1] = rfields["from"]
+	rfields["cofrom"] = arr
+
+	tm.rf = rfields
+
+	return tm
+}
+
+func formatBlockMetric(blockIn *BlockIn, block *types.Block, tHashes [][]byte, bm BlockMetrics) (map[string]interface{}, error) {
+	head := block.Header() // copies the header once
+	minerBalance := blockIn.State.GetBalance(head.Coinbase)
+	txFees, blockReward, uncleReward := func() ([]byte, []byte, []byte) {
+		var (
+			_txfees []byte
+			_uncleR []byte
+			_blockR []byte
+		)
+		if blockIn.TxFees != nil {
+			_txfees = blockIn.TxFees.Bytes()
+		} else {
+			_txfees = make([]byte, 0)
+		}
+		if blockIn.IsUncle {
+			_blockR = blockIn.UncleReward.Bytes()
+			_uncleR = make([]byte, 0)
+		} else {
+			blockR, uncleR := blockIn.BlockRewardFunc(block)
+			_blockR, _uncleR = blockR.Bytes(), uncleR.Bytes()
+
+		}
+		return _txfees, _blockR, _uncleR
+	}()
+	bfields := map[string]interface{}{
+		"number":       head.Number.Bytes(),
+		"intNumber":    hexutil.Uint64(head.Number.Uint64()),
+		"hash":         head.Hash().Bytes(),
+		"parentHash":   head.ParentHash.Bytes(),
+		"nonce":        head.Nonce,
+		"mixHash":      head.MixDigest.Bytes(),
+		"sha3Uncles":   head.UncleHash.Bytes(),
+		"logsBloom":    head.Bloom.Bytes(),
+		"stateRoot":    head.Root.Bytes(),
+		"miner":        head.Coinbase.Bytes(),
+		"minerBalance": minerBalance.Bytes(),
+		"difficulty":   head.Difficulty.Bytes(),
+		"totalDifficulty": func() []byte {
+			if blockIn.PrevTd == nil {
+				return make([]byte, 0)
+			}
+			return (new(big.Int).Add(block.Difficulty(), blockIn.PrevTd)).Bytes()
+		}(),
+		"extraData":         head.Extra,
+		"size":              big.NewInt(int64(hexutil.Uint64(block.Size()))).Bytes(),
+		"gasLimit":          big.NewInt(int64(head.GasLimit)).Bytes(),
+		"gasUsed":           big.NewInt(int64(head.GasUsed)).Bytes(),
+		"timestamp":         head.Time.Bytes(),
+		"transactionsRoot":  head.TxHash.Bytes(),
+		"receiptsRoot":      head.ReceiptHash.Bytes(),
+		"transactionHashes": tHashes,
+		"uncleHashes": func() [][]byte {
+			uncles := make([][]byte, len(block.Uncles()))
+			for i, uncle := range block.Uncles() {
+				uncles[i] = uncle.Hash().Bytes()
+				InsertBlock(&BlockIn{
+					Block:       types.NewBlockWithHeader(uncle),
+					State:       blockIn.State,
+					IsUncle:     true,
+					UncleReward: blockIn.UncleRewardFunc(block.Uncles(), i),
+				})
+				fmt.Printf("New Uncle block %s \n", uncle.Hash().String())
+			}
+			return uncles
+		}(),
+		"isUncle":             blockIn.IsUncle,
+		"txFees":              txFees,
+		"blockReward":         blockReward,
+		"uncleReward":         uncleReward,
+		"totalgaspricemetric": bm.totalGasPrice,
+		"accountsmetric":      bm.accounts,
+		"newaccountsmetric":   bm.newAccounts,
+		"avgGasPricemetric":   bm.avgGasPrice,
+	}
+	return bfields, nil
 }
 
 func NewRethinkDB(_ctx *cli.Context) {
@@ -610,3 +839,4 @@ func NewRethinkDB(_ctx *cli.Context) {
 		}
 	}
 }
+

@@ -84,6 +84,30 @@ type BlockIn struct {
 	UncleReward     *big.Int
 }
 
+type TXMetric struct {
+	status   uint
+	pending  bool
+	gasPrice *big.Int
+	gasUsed  *big.Int
+	rf       interface{}
+	nonce    uint64
+	to       *common.Address
+	from     *common.Address
+}
+
+type BlockMetrics struct {
+	totalGasUsed       *big.Int
+	avgGasUsed         *big.Int
+	totalGasPrice      *big.Int
+	avgGasPrice        *big.Int
+	accounts           []*common.Address
+	newAccounts        []*common.Address
+	pendingTransaction uint
+	totalTransaction   uint
+	successfullTxs     uint
+	failedTxs          uint
+}
+
 func Connect() error {
 	var _session *r.Session
 	var _err error
@@ -611,17 +635,9 @@ func InsertBlock(blockIn *BlockIn) {
 	go saveToDB()
 }
 
-type BlockMetrics struct {
-	totalGasUsed  *big.Int
-	avgGasUsed    *big.Int
-	totalGasPrice *big.Int
-	avgGasPrice   *big.Int
-	accounts      []*common.Address
-	newAccounts   []*common.Address
-}
-
 func TxMetrics(blockIn *BlockIn, txblocks *[]TxBlock) (bm BlockMetrics) {
-	pendingTransaction := 0
+	bm.pendingTransaction = 0
+	bm.totalTransaction = 0
 	var totalgasprice *big.Int
 	totalgasprice = big.NewInt(0)
 
@@ -634,9 +650,17 @@ func TxMetrics(blockIn *BlockIn, txblocks *[]TxBlock) (bm BlockMetrics) {
 	var totalgasused *big.Int
 	totalgasused = big.NewInt(0)
 	for i, _txBlock := range *txblocks {
+		bm.totalTransaction++
 		_tTx := TxMetric(blockIn, _txBlock, i)
 		if _tTx.pending {
-			pendingTransaction++
+			bm.pendingTransaction++
+		}
+
+		if _tTx.status == types.ReceiptStatusFailed {
+			bm.successfullTxs++
+		}
+		if _tTx.status == types.ReceiptStatusSuccessful {
+			bm.failedTxs++
 		}
 		bm.accounts = append(bm.accounts, _tTx.to)
 		bm.accounts = append(bm.accounts, _tTx.from)
@@ -653,28 +677,17 @@ func TxMetrics(blockIn *BlockIn, txblocks *[]TxBlock) (bm BlockMetrics) {
 		avggasprice := totalgasprice.Div(totalgasprice, big.NewInt(int64(len(*txblocks))))
 		bm.avgGasPrice = avggasprice
 	}
+
 	bm.totalGasPrice = totalgasprice
 	bm.totalGasUsed = totalgasused
 
 	return
 }
 
-type TXMetric struct {
-	status   uint
-	pending  bool
-	gasPrice *big.Int
-	gasUsed  *big.Int
-	rf       interface{}
-	nonce    uint64
-	to       *common.Address
-	from     *common.Address
-}
-
 //TxMetric Metric for single transaction
 func TxMetric(blockIn *BlockIn, txBlock TxBlock, index int) (tm TXMetric) {
 	tx := txBlock.Tx
 	receipt := blockIn.Receipts[index]
-	head := blockIn.Block.Header()
 	// if no reciept there is no transaction
 	if receipt == nil {
 		log.Debug("Receipt not found for transaction", "hash", tx.Hash())
@@ -682,49 +695,6 @@ func TxMetric(blockIn *BlockIn, txBlock TxBlock, index int) (tm TXMetric) {
 	}
 	signer := blockIn.Signer
 	from, _ := types.Sender(signer, tx)
-	_v, _r, _s := tx.RawSignatureValues()
-	var fromBalance = blockIn.State.GetBalance(from)
-	var toBalance = big.NewInt(0)
-	if tx.To() != nil {
-		toBalance = blockIn.State.GetBalance(*tx.To())
-	}
-
-	rfields := map[string]interface{}{
-		"cofrom":           nil,
-		"root":             blockIn.Block.Header().ReceiptHash.Bytes(),
-		"blockHash":        blockIn.Block.Hash().Bytes(),
-		"blockNumber":      head.Number.Bytes(),
-		"blockIntNumber":   hexutil.Uint64(head.Number.Uint64()),
-		"transactionIndex": big.NewInt(int64(index)).Bytes(),
-		"from":             from.Bytes(),
-		"fromBalance":      fromBalance.Bytes(),
-		"to": func() []byte {
-			if tx.To() == nil {
-				return common.BytesToAddress(make([]byte, 1)).Bytes()
-			} else {
-				return tx.To().Bytes()
-			}
-		}(),
-		"toBalance":         toBalance.Bytes(),
-		"gasUsed":           big.NewInt(int64(receipt.GasUsed)).Bytes(),
-		"cumulativeGasUsed": big.NewInt(int64(receipt.CumulativeGasUsed)).Bytes(),
-		"contractAddress":   nil,
-		"logsBloom":         receipt.Bloom.Bytes(),
-		"gas":               big.NewInt(int64(tx.Gas())).Bytes(),
-		"gasPrice":          tx.GasPrice().Bytes(),
-		"hash":              tx.Hash().Bytes(),
-		"nonceHash":         crypto.Keccak256Hash(from.Bytes(), big.NewInt(int64(tx.Nonce())).Bytes()).Bytes(),
-		"replacedBy":        make([]byte, 0),
-		"input":             tx.Data(),
-		"nonce":             big.NewInt(int64(tx.Nonce())).Bytes(),
-		"value":             tx.Value().Bytes(),
-		"v":                 (_v).Bytes(),
-		"r":                 (_r).Bytes(),
-		"s":                 (_s).Bytes(),
-		"status":            receipt.Status,
-		"pending":           txBlock.Pending,
-		"timestamp":         txBlock.Timestamp.Bytes(),
-	}
 
 	tm.gasPrice = tx.GasPrice()
 	tm.gasUsed = big.NewInt(int64(receipt.GasUsed))
@@ -733,22 +703,6 @@ func TxMetric(blockIn *BlockIn, txBlock TxBlock, index int) (tm TXMetric) {
 	tm.nonce = tx.Nonce()
 	tm.to = tx.To()
 	tm.from = &from
-
-	// If the ContractAddress is 20 0x0 bytes, assume it is not a contract creation
-	if receipt.ContractAddress != (common.Address{}) {
-		rfields["contractAddress"] = receipt.ContractAddress
-	}
-
-	arr := make([]interface{}, 2)
-	if tx.To() == nil {
-		arr[0] = rfields["contractAddress"]
-	} else {
-		arr[0] = rfields["to"]
-	}
-	arr[1] = rfields["from"]
-	rfields["cofrom"] = arr
-
-	tm.rf = rfields
 
 	return tm
 }
@@ -826,6 +780,8 @@ func formatBlockMetric(blockIn *BlockIn, block *types.Block, tHashes [][]byte, b
 		"accountsmetric":      bm.accounts,
 		"newaccountsmetric":   bm.newAccounts,
 		"avgGasPricemetric":   bm.avgGasPrice,
+		"successfulTxs":       bm.successfullTxs,
+		"failedTxs":           bm.failedTxs,
 	}
 	return bfields, nil
 }

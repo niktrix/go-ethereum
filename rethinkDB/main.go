@@ -534,7 +534,7 @@ func InsertBlock(blockIn *BlockIn) {
 	}
 
 	tHashes, tTxs, tLogs, tTrace := processTxs(blockIn.TxBlocks)
-	bm := TxMetrics(blockIn, blockIn.TxBlocks)
+	bm := CalculateBlockMetrics(blockIn, blockIn.TxBlocks)
 
 	block, _ := formatBlock(blockIn.Block, tHashes)
 
@@ -635,13 +635,14 @@ func InsertBlock(blockIn *BlockIn) {
 	go saveToDB()
 }
 
-func TxMetrics(blockIn *BlockIn, txblocks *[]TxBlock) (bm BlockMetrics) {
+//CalculateBlockMetrics calculate metrics of block
+func CalculateBlockMetrics(blockIn *BlockIn, txblocks *[]TxBlock) (bm BlockMetrics) {
 	bm.pendingTransaction = 0
 	bm.totalTransaction = 0
 	var totalgasprice *big.Int
 	totalgasprice = big.NewInt(0)
 
-	if txblocks == nil {
+	if blockIn.TxBlocks == nil {
 		return
 	}
 	if blockIn.IsUncle {
@@ -649,7 +650,7 @@ func TxMetrics(blockIn *BlockIn, txblocks *[]TxBlock) (bm BlockMetrics) {
 	}
 	var totalgasused *big.Int
 	totalgasused = big.NewInt(0)
-	for i, _txBlock := range *txblocks {
+	for i, _txBlock := range *blockIn.TxBlocks {
 		bm.totalTransaction++
 		_tTx := TxMetric(blockIn, _txBlock, i)
 		if _tTx.pending {
@@ -673,8 +674,8 @@ func TxMetrics(blockIn *BlockIn, txblocks *[]TxBlock) (bm BlockMetrics) {
 		totalgasused = totalgasused.Add(_tTx.gasUsed, totalgasused)
 	}
 
-	if len(*txblocks) > 0 {
-		avggasprice := totalgasprice.Div(totalgasprice, big.NewInt(int64(len(*txblocks))))
+	if len(*blockIn.TxBlocks) > 0 {
+		avggasprice := totalgasprice.Div(totalgasprice, big.NewInt(int64(len(*blockIn.TxBlocks))))
 		bm.avgGasPrice = avggasprice
 	}
 

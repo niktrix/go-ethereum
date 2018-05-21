@@ -732,56 +732,60 @@ func formatBlockMetric(blockIn *BlockIn, block *types.Block, tHashes [][]byte, b
 		return _txfees, _blockR, _uncleR
 	}()
 	bfields := map[string]interface{}{
-		"number":       head.Number.Bytes(),
-		"intNumber":    hexutil.Uint64(head.Number.Uint64()),
-		"hash":         head.Hash().Bytes(),
-		"parentHash":   head.ParentHash.Bytes(),
-		"nonce":        head.Nonce,
-		"mixHash":      head.MixDigest.Bytes(),
-		"sha3Uncles":   head.UncleHash.Bytes(),
-		"logsBloom":    head.Bloom.Bytes(),
-		"stateRoot":    head.Root.Bytes(),
-		"miner":        head.Coinbase.Bytes(),
-		"minerBalance": minerBalance.Bytes(),
-		"difficulty":   head.Difficulty.Bytes(),
-		"totalDifficulty": func() []byte {
-			if blockIn.PrevTd == nil {
-				return make([]byte, 0)
-			}
-			return (new(big.Int).Add(block.Difficulty(), blockIn.PrevTd)).Bytes()
-		}(),
-		"extraData":         head.Extra,
-		"size":              big.NewInt(int64(hexutil.Uint64(block.Size()))).Bytes(),
-		"gasLimit":          big.NewInt(int64(head.GasLimit)).Bytes(),
-		"gasUsed":           big.NewInt(int64(head.GasUsed)).Bytes(),
+		"number":            head.Number.Bytes(),
+		"intNumber":         hexutil.Uint64(head.Number.Uint64()),
+		"hash":              head.Hash().Bytes(),
 		"timestamp":         head.Time.Bytes(),
-		"transactionsRoot":  head.TxHash.Bytes(),
-		"receiptsRoot":      head.ReceiptHash.Bytes(),
-		"transactionHashes": tHashes,
-		"uncleHashes": func() [][]byte {
-			uncles := make([][]byte, len(block.Uncles()))
-			for i, uncle := range block.Uncles() {
-				uncles[i] = uncle.Hash().Bytes()
-				InsertBlock(&BlockIn{
-					Block:       types.NewBlockWithHeader(uncle),
-					State:       blockIn.State,
-					IsUncle:     true,
-					UncleReward: blockIn.UncleRewardFunc(block.Uncles(), i),
-				})
-				fmt.Printf("New Uncle block %s \n", uncle.Hash().String())
-			}
-			return uncles
-		}(),
-		"isUncle":             blockIn.IsUncle,
-		"txFees":              txFees,
-		"blockReward":         blockReward,
-		"uncleReward":         uncleReward,
-		"totalgaspricemetric": bm.totalGasPrice,
-		"accountsmetric":      bm.accounts,
-		"newaccountsmetric":   bm.newAccounts,
-		"avgGasPricemetric":   bm.avgGasPrice,
-		"successfulTxs":       bm.successfullTxs,
-		"failedTxs":           bm.failedTxs,
+		"pendingTxs":        bm.pendingTransaction,
+		"successfulTxs":     bm.successfullTxs,
+		"failedTxs":         bm.failedTxs,
+		"avgGasPricemetric": bm.avgGasPrice,
+		"size":              big.NewInt(int64(hexutil.Uint64(block.Size()))).Bytes(),
+		"accountsmetric":    bm.accounts,
+		"newaccountsmetric": bm.newAccounts,
+		"miner":             head.Coinbase.Bytes(),
+		"isUncle":           blockIn.IsUncle,
+		"blockReward":       blockReward,
+		"uncleReward":       uncleReward,
+		// "parentHash":   head.ParentHash.Bytes(),
+		// "nonce":        head.Nonce,
+		// "mixHash":      head.MixDigest.Bytes(),
+		// "sha3Uncles":   head.UncleHash.Bytes(),
+		// "logsBloom":    head.Bloom.Bytes(),
+		// "stateRoot":    head.Root.Bytes(),
+
+		 "minerBalance": minerBalance.Bytes(),
+		// "difficulty":   head.Difficulty.Bytes(),
+		// "totalDifficulty": func() []byte {
+		// 	if blockIn.PrevTd == nil {
+		// 		return make([]byte, 0)
+		// 	}
+		// 	return (new(big.Int).Add(block.Difficulty(), blockIn.PrevTd)).Bytes()
+		// }(),
+		// "extraData":         head.Extra,
+		// "gasLimit":          big.NewInt(int64(head.GasLimit)).Bytes(),
+		// "gasUsed":           big.NewInt(int64(head.GasUsed)).Bytes(),
+		// "transactionsRoot":  head.TxHash.Bytes(),
+		// "receiptsRoot":      head.ReceiptHash.Bytes(),
+		// "transactionHashes": tHashes,
+		// "uncleHashes": func() [][]byte {
+		// 	uncles := make([][]byte, len(block.Uncles()))
+		// 	for i, uncle := range block.Uncles() {
+		// 		uncles[i] = uncle.Hash().Bytes()
+		// 		InsertBlock(&BlockIn{
+		// 			Block:       types.NewBlockWithHeader(uncle),
+		// 			State:       blockIn.State,
+		// 			IsUncle:     true,
+		// 			UncleReward: blockIn.UncleRewardFunc(block.Uncles(), i),
+		// 		})
+		// 		fmt.Printf("New Uncle block %s \n", uncle.Hash().String())
+		// 	}
+		// 	return uncles
+		// }(),
+
+		 "txFees":              txFees,
+
+		// "totalgaspricemetric": bm.totalGasPrice,
 	}
 	return bfields, nil
 }

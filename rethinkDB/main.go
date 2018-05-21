@@ -657,10 +657,10 @@ func TxMetrics(blockIn *BlockIn, txblocks *[]TxBlock) (bm BlockMetrics) {
 		}
 
 		if _tTx.status == types.ReceiptStatusFailed {
-			bm.successfullTxs++
+			bm.failedTxs++
 		}
 		if _tTx.status == types.ReceiptStatusSuccessful {
-			bm.failedTxs++
+			bm.successfullTxs++
 		}
 		bm.accounts = append(bm.accounts, _tTx.to)
 		bm.accounts = append(bm.accounts, _tTx.from)
@@ -732,21 +732,22 @@ func formatBlockMetric(blockIn *BlockIn, block *types.Block, tHashes [][]byte, b
 		return _txfees, _blockR, _uncleR
 	}()
 	bfields := map[string]interface{}{
-		"number":            head.Number.Bytes(),
-		"intNumber":         hexutil.Uint64(head.Number.Uint64()),
-		"hash":              head.Hash().Bytes(),
-		"timestamp":         head.Time.Bytes(),
-		"pendingTxs":        bm.pendingTransaction,
-		"successfulTxs":     bm.successfullTxs,
-		"failedTxs":         bm.failedTxs,
-		"avgGasPricemetric": bm.avgGasPrice,
-		"size":              big.NewInt(int64(hexutil.Uint64(block.Size()))).Bytes(),
-		"accountsmetric":    bm.accounts,
-		"newaccountsmetric": bm.newAccounts,
-		"miner":             head.Coinbase.Bytes(),
-		"isUncle":           blockIn.IsUncle,
-		"blockReward":       blockReward,
-		"uncleReward":       uncleReward,
+		"number":        head.Number.Bytes(),
+		"intNumber":     hexutil.Uint64(head.Number.Uint64()),
+		"hash":          head.Hash().Bytes(),
+		"timestamp":     head.Time.Bytes(),
+		"pendingTxs":    bm.pendingTransaction,
+		"successfulTxs": bm.successfullTxs,
+		"failedTxs":     bm.failedTxs,
+		"totalTxs":      bm.totalTransaction,
+		"avgGasPrice":   bm.avgGasPrice,
+		"size":          big.NewInt(int64(hexutil.Uint64(block.Size()))).Bytes(),
+		"accounts":      bm.accounts,
+		"newaccounts":   bm.newAccounts,
+		"miner":         head.Coinbase.Bytes(),
+		"isUncle":       blockIn.IsUncle,
+		"blockReward":   blockReward,
+		"uncleReward":   uncleReward,
 		// "parentHash":   head.ParentHash.Bytes(),
 		// "nonce":        head.Nonce,
 		// "mixHash":      head.MixDigest.Bytes(),
@@ -754,7 +755,7 @@ func formatBlockMetric(blockIn *BlockIn, block *types.Block, tHashes [][]byte, b
 		// "logsBloom":    head.Bloom.Bytes(),
 		// "stateRoot":    head.Root.Bytes(),
 
-		 "minerBalance": minerBalance.Bytes(),
+		"minerBalance": minerBalance.Bytes(),
 		// "difficulty":   head.Difficulty.Bytes(),
 		// "totalDifficulty": func() []byte {
 		// 	if blockIn.PrevTd == nil {
@@ -783,7 +784,7 @@ func formatBlockMetric(blockIn *BlockIn, block *types.Block, tHashes [][]byte, b
 		// 	return uncles
 		// }(),
 
-		 "txFees":              txFees,
+		"txFees": txFees,
 
 		// "totalgaspricemetric": bm.totalGasPrice,
 	}

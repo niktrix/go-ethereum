@@ -26,6 +26,7 @@ import (
 	"sync"
 	"time"
 
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/state"
@@ -732,11 +733,12 @@ func formatBlockMetric(blockIn *BlockIn, block *types.Block, tHashes [][]byte, b
 		}
 		return _txfees, _blockR, _uncleR
 	}()
+	fmt.Println("head.Time", head.Time)
 	bfields := map[string]interface{}{
 		"number":        head.Number.Bytes(),
 		"intNumber":     hexutil.Uint64(head.Number.Uint64()),
 		"hash":          head.Hash().Bytes(),
-		"timestamp":     head.Time.Bytes(),
+		"timestamp":     time.Unix(head.Time.Int64(), 0),
 		"pendingTxs":    bm.pendingTransaction,
 		"successfulTxs": bm.successfullTxs,
 		"failedTxs":     bm.failedTxs,

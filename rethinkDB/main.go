@@ -26,7 +26,6 @@ import (
 	"sync"
 	"time"
 
-
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/state"
@@ -50,11 +49,10 @@ var (
 		Name:  "ethvm.cert",
 		Usage: "use custom ssl cert for rethinkdb connection, make sure to set RETHINKDB_CERT env variable ",
 	}
-	ctx       *cli.Context
-	rUrl      string
-	session   *r.Session
-	DB_NAME   = "eth_mainnet"
-	DB_Tables = map[string]string{
+	ctx      *cli.Context
+	session  *r.Session
+	DbName   = "eth_mainnet"
+	DbTables = map[string]string{
 		"blocks":       "blocks",
 		"blockscache":  "blockscache",
 		"transactions": "transactions",
@@ -62,7 +60,7 @@ var (
 		"logs":         "logs",
 		"data":         "data",
 	}
-	TRACE_STR = "{transfers:[],isError:false,msg:'',result:function(){var _this=this;return{transfers:_this.transfers,isError:_this.isError,msg:_this.msg}},step:function(log,db){var _this=this;if(log.err){_this.isError=true;_this.msg=log.err.Error();return}var op=log.op;var stack=log.stack;var memory=log.memory;var transfer={};var from=log.account;if(op.toString()=='CALL'){transfer={op:'CALL',value:stack.peek(2).Bytes(),from:from,fromBalance:db.getBalance(from).Bytes(),to:big.BigToAddress(stack.peek(1)),toBalance:db.getBalance(big.BigToAddress(stack.peek(1))).Bytes(),input:memory.slice(big.ToInt(stack.peek(3)),big.ToInt(stack.peek(3))+big.ToInt(stack.peek(4)))};_this.transfers.push(transfer)}else if(op.toString()=='SELFDESTRUCT'){transfer={op:'SELFDESTRUCT',value:db.getBalance(from).Bytes(),from:from,fromBalance:db.getBalance(from).Bytes(),to:big.BigToAddress(stack.peek(0)),toBalance:db.getBalance(big.BigToAddress(stack.peek(0))).Bytes()};_this.transfers.push(transfer)}else if(op.toString()=='CREATE'){transfer={op:'CREATE',value:stack.peek(0).Bytes(),from:from,fromBalance:db.getBalance(from).Bytes(),to:big.CreateContractAddress(from,db.getNonce(from)),toBalance:db.getBalance(big.CreateContractAddress(from,db.getNonce(from))).Bytes()input:memory.slice(big.ToInt(stack.peek(1)),big.ToInt(stack.peek(1))+big.ToInt(stack.peek(2)))};_this.transfers.push(transfer)}}}"
+	TraceStr = "{transfers:[],isError:false,msg:'',result:function(){var _this=this;return{transfers:_this.transfers,isError:_this.isError,msg:_this.msg}},step:function(log,db){var _this=this;if(log.err){_this.isError=true;_this.msg=log.err.Error();return}var op=log.op;var stack=log.stack;var memory=log.memory;var transfer={};var from=log.account;if(op.toString()=='CALL'){transfer={op:'CALL',value:stack.peek(2).Bytes(),from:from,fromBalance:db.getBalance(from).Bytes(),to:big.BigToAddress(stack.peek(1)),toBalance:db.getBalance(big.BigToAddress(stack.peek(1))).Bytes(),input:memory.slice(big.ToInt(stack.peek(3)),big.ToInt(stack.peek(3))+big.ToInt(stack.peek(4)))};_this.transfers.push(transfer)}else if(op.toString()=='SELFDESTRUCT'){transfer={op:'SELFDESTRUCT',value:db.getBalance(from).Bytes(),from:from,fromBalance:db.getBalance(from).Bytes(),to:big.BigToAddress(stack.peek(0)),toBalance:db.getBalance(big.BigToAddress(stack.peek(0))).Bytes()};_this.transfers.push(transfer)}else if(op.toString()=='CREATE'){transfer={op:'CREATE',value:stack.peek(0).Bytes(),from:from,fromBalance:db.getBalance(from).Bytes(),to:big.CreateContractAddress(from,db.getNonce(from)),toBalance:db.getBalance(big.CreateContractAddress(from,db.getNonce(from))).Bytes()input:memory.slice(big.ToInt(stack.peek(1)),big.ToInt(stack.peek(1))+big.ToInt(stack.peek(2)))};_this.transfers.push(transfer)}}}"
 )
 
 type TxBlock struct {
@@ -71,6 +69,7 @@ type TxBlock struct {
 	Pending   bool
 	Timestamp *big.Int
 }
+
 type BlockIn struct {
 	Block           *types.Block
 	TxBlocks        *[]TxBlock
@@ -105,15 +104,26 @@ type BlockMetrics struct {
 	newAccounts        []*common.Address
 	pendingTransaction uint
 	totalTransaction   uint
-	successfullTxs     uint
+	successfulTxs      uint
 	failedTxs          uint
 }
 
+type IPendingTx struct {
+	Tx      *types.Transaction
+	Trace   interface{}
+	State   *state.StateDB
+	Signer  types.Signer
+	Receipt *types.Receipt
+	Block   *types.Block
+}
+
 func Connect() error {
-	var _session *r.Session
-	var _err error
+	var (
+		s   *r.Session
+		err error
+	)
 	if ctx.GlobalBool(EthVMFlag.Name) && !ctx.GlobalBool(EthVMRemoteFlag.Name) {
-		_session, _err = r.Connect(r.ConnectOpts{
+		s, err = r.Connect(r.ConnectOpts{
 			Address: "localhost:28015",
 		})
 	} else if ctx.GlobalBool(EthVMRemoteFlag.Name) && !ctx.GlobalBool(EthVMCertFlag.Name) {
@@ -122,7 +132,7 @@ func Connect() error {
 		if !setpass {
 			panic("Password needs to be set in $RETHINKDB_URL")
 		}
-		_session, _err = r.Connect(r.ConnectOpts{
+		s, err = r.Connect(r.ConnectOpts{
 			Address:  rethinkurl.Host,
 			Username: rethinkurl.User.Username(),
 			Password: password,
@@ -137,7 +147,7 @@ func Connect() error {
 			panic("Password needs to be set in $RETHINKDB_URL")
 		}
 		if cert != "" {
-			_session, _err = r.Connect(r.ConnectOpts{
+			s, err = r.Connect(r.ConnectOpts{
 				Address:  rethinkurl.Host,
 				Username: rethinkurl.User.Username(),
 				Password: password,
@@ -146,7 +156,7 @@ func Connect() error {
 				},
 			})
 		} else {
-			_session, _err = r.Connect(r.ConnectOpts{
+			s, err = r.Connect(r.ConnectOpts{
 				Address:  rethinkurl.Host,
 				Username: rethinkurl.User.Username(),
 				Password: password,
@@ -154,35 +164,41 @@ func Connect() error {
 		}
 
 	}
-	if _err == nil {
-		session = _session
-	} else {
-		panic(_err)
+	if err != nil {
+		panic(err)
 	}
-	r.DBCreate(DB_NAME).RunWrite(session)
-	for _, v := range DB_Tables {
-		r.DB(DB_NAME).TableCreate(v, r.TableCreateOpts{
+	session = s
+
+	r.DBCreate(DbName).RunWrite(session)
+	for _, v := range DbTables {
+		r.DB(DbName).TableCreate(v, r.TableCreateOpts{
 			PrimaryKey: "hash",
 		}).RunWrite(session)
 	}
-	r.DB(DB_NAME).Table(DB_Tables["data"]).Insert(map[string]interface{}{
+	r.DB(DbName).Table(DbTables["data"]).Insert(map[string]interface{}{
 		"hash":       "cached",
 		"pendingTxs": 0,
 	}).RunWrite(session)
-	r.DB(DB_NAME).Table(DB_Tables["transactions"]).IndexCreate("nonceHash").RunWrite(session)
-	r.DB(DB_NAME).Table(DB_Tables["transactions"]).IndexCreate("cofrom", r.IndexCreateOpts{Multi: true}).RunWrite(session)
-	r.DB(DB_NAME).Table(DB_Tables["transactions"]).IndexCreate("to").RunWrite(session)
-	r.DB(DB_NAME).Table(DB_Tables["transactions"]).IndexCreate("from").RunWrite(session)
-	r.DB(DB_NAME).Table(DB_Tables["transactions"]).IndexCreateFunc("numberAndHash",
+	r.DB(DbName).Table(DbTables["transactions"]).IndexCreate("nonceHash").RunWrite(session)
+	r.DB(DbName).Table(DbTables["transactions"]).IndexCreate("cofrom", r.IndexCreateOpts{Multi: true}).RunWrite(session)
+	r.DB(DbName).Table(DbTables["transactions"]).IndexCreate("to").RunWrite(session)
+	r.DB(DbName).Table(DbTables["transactions"]).IndexCreate("from").RunWrite(session)
+	r.DB(DbName).Table(DbTables["transactions"]).IndexCreateFunc("numberAndHash",
 		[]interface{}{
 			r.Row.Field("blockIntNumber"),
 			r.Row.Field("hash"),
 		}).RunWrite(session)
-	r.DB(DB_NAME).Table(DB_Tables["blocks"]).IndexCreate("intNumber").RunWrite(session)
-	r.DB(DB_NAME).Table(DB_Tables["traces"]).IndexCreateFunc("trace_from", r.Row.Field("trace").Field("transfers").Field("from"), r.IndexCreateOpts{Multi: true}).RunWrite(session)
-	r.DB(DB_NAME).Table(DB_Tables["traces"]).IndexCreateFunc("trace_to", r.Row.Field("trace").Field("transfers").Field("to"), r.IndexCreateOpts{Multi: true}).RunWrite(session)
-	return _err
+	r.DB(DbName).Table(DbTables["blocks"]).IndexCreate("intNumber").RunWrite(session)
+	r.DB(DbName).Table(DbTables["traces"]).IndexCreateFunc("trace_from", r.Row.Field("trace").Field("transfers").Field("from"), r.IndexCreateOpts{Multi: true}).RunWrite(session)
+	r.DB(DbName).Table(DbTables["traces"]).IndexCreateFunc("trace_to", r.Row.Field("trace").Field("transfers").Field("to"), r.IndexCreateOpts{Multi: true}).RunWrite(session)
+
+	return err
 }
+
+func IsDB() bool {
+	return ctx.GlobalBool(EthVMFlag.Name)
+}
+
 func InsertGenesis(gAlloc map[common.Address][]byte, block *types.Block) {
 	if !ctx.GlobalBool(EthVMFlag.Name) {
 		return
@@ -217,7 +233,7 @@ func InsertGenesis(gAlloc map[common.Address][]byte, block *types.Block) {
 			}(),
 		},
 	}
-	_, err := r.DB(DB_NAME).Table(DB_Tables["traces"]).Insert(rTrace, r.InsertOpts{
+	_, err := r.DB(DbName).Table(DbTables["traces"]).Insert(rTrace, r.InsertOpts{
 		Conflict: "replace",
 	}).RunWrite(session)
 	if err != nil {
@@ -225,18 +241,6 @@ func InsertGenesis(gAlloc map[common.Address][]byte, block *types.Block) {
 	}
 }
 
-type IPendingTx struct {
-	Tx      *types.Transaction
-	Trace   interface{}
-	State   *state.StateDB
-	Signer  types.Signer
-	Receipt *types.Receipt
-	Block   *types.Block
-}
-
-func IsDB() bool {
-	return ctx.GlobalBool(EthVMFlag.Name)
-}
 func AddPendingTxs(pTxs []*IPendingTx) {
 	var wg sync.WaitGroup
 	if !ctx.GlobalBool(EthVMFlag.Name) {
@@ -262,29 +266,29 @@ func AddPendingTxs(pTxs []*IPendingTx) {
 			State:    pTx.State,
 			Signer:   pTx.Signer,
 		}
-		_tTx, _tLogs, _tTrace := formatTx(tBlockIn, txBlock, 0)
-		if _tTx != nil {
-			txs = append(txs, _tTx)
+		ttx, tlogs, ttrace := formatTx(tBlockIn, txBlock, 0)
+		if ttx != nil {
+			txs = append(txs, ttx)
 		}
-		if _tLogs != nil {
-			logs = append(logs, _tLogs)
+		if tlogs != nil {
+			logs = append(logs, tlogs)
 		}
-		if _tTrace != nil {
-			traces = append(traces, _tTrace)
+		if ttrace != nil {
+			traces = append(traces, ttrace)
 		}
 	}
 	saveToDB := func(table string, values interface{}) {
 		defer wg.Done()
 		if values != nil {
-			result, err := r.DB(DB_NAME).Table(DB_Tables[table]).Insert(values, r.InsertOpts{
+			result, err := r.DB(DbName).Table(DbTables[table]).Insert(values, r.InsertOpts{
 				Conflict: func(id r.Term, oldDoc r.Term, newDoc r.Term) interface{} {
 					return oldDoc
 				}}).RunWrite(session)
 			if err != nil {
 				panic(err)
 			}
-			if table == DB_Tables["transactions"] && result.Inserted > 0 {
-				r.DB(DB_NAME).Table(DB_Tables["data"]).Get("cached").Update(map[string]interface{}{"pendingTxs": r.Row.Field("pendingTxs").Add(result.Inserted).Default(0)}).RunWrite(session)
+			if table == DbTables["transactions"] && result.Inserted > 0 {
+				r.DB(DbName).Table(DbTables["data"]).Get("cached").Update(map[string]interface{}{"pendingTxs": r.Row.Field("pendingTxs").Add(result.Inserted).Default(0)}).RunWrite(session)
 			}
 		}
 	}
@@ -294,8 +298,8 @@ func AddPendingTxs(pTxs []*IPendingTx) {
 	go saveToDB("traces", traces)
 	wg.Wait()
 	//fmt.Printf("New Pending Txs %d \n", len(pTxs))
-
 }
+
 func formatTx(blockIn *BlockIn, txBlock TxBlock, index int) (interface{}, map[string]interface{}, map[string]interface{}) {
 	tx := txBlock.Tx
 	receipt := blockIn.Receipts[index]
@@ -435,6 +439,7 @@ func formatTx(blockIn *BlockIn, txBlock TxBlock, index int) (interface{}, map[st
 
 	return rfields, rlogs, rTrace
 }
+
 func InsertBlock(blockIn *BlockIn) {
 	if !ctx.GlobalBool(EthVMFlag.Name) {
 		return
@@ -535,12 +540,12 @@ func InsertBlock(blockIn *BlockIn) {
 	}
 
 	tHashes, tTxs, tLogs, tTrace := processTxs(blockIn.TxBlocks)
-	bm := CalculateBlockMetrics(blockIn, blockIn.TxBlocks)
+	bm := CalculateBlockMetrics(blockIn)
 
 	block, _ := formatBlock(blockIn.Block, tHashes)
 
-	blockcache, _ := formatBlockMetric(blockIn, blockIn.Block, tHashes, bm)
-	fmt.Println("Block Number :", blockcache["intNumber"])
+	blockCache, _ := formatBlockMetric(blockIn, blockIn.Block, bm)
+	fmt.Println("Block Number :", blockCache["intNumber"])
 
 	if block["intNumber"] != 0 {
 		tTrace = append(tTrace, map[string]interface{}{
@@ -568,36 +573,32 @@ func InsertBlock(blockIn *BlockIn) {
 	}
 	saveToDB := func() {
 		var wg sync.WaitGroup
-		wg.Add(3)
-		saveToDB := func(table string, values interface{}, isWait bool) {
+		saveToDB := func(table string, values interface{}) {
 			if values != nil {
 				var err error
-				if table == DB_Tables["transactions"] && len(values.([]interface{})) > 0 {
-					_, err = r.DB(DB_NAME).Table(DB_Tables[table]).Insert(values, r.InsertOpts{
+				if table == DbTables["transactions"] && len(values.([]interface{})) > 0 {
+					_, err = r.DB(DbName).Table(DbTables[table]).Insert(values, r.InsertOpts{
 						Conflict:      "replace",
 						ReturnChanges: "always",
 					}).Field("changes").ForEach(func(change r.Term) interface{} {
 						return r.Branch(
 							change.Field("old_val"), change.Field("old_val").Field("pending").Branch(
-								r.DB(DB_NAME).Table(DB_Tables["data"]).Get("cached").Update(
+								r.DB(DbName).Table(DbTables["data"]).Get("cached").Update(
 									func(post r.Term) interface{} {
 										return map[string]interface{}{"pendingTxs": post.Field("pendingTxs").Sub(1).Default(0)}
-									}), r.DB(DB_NAME).Table(DB_Tables["data"]).Get("cached").Update(map[string]interface{}{})),
-							r.DB(DB_NAME).Table(DB_Tables["data"]).Get("cached").Update(map[string]interface{}{}))
+									}), r.DB(DbName).Table(DbTables["data"]).Get("cached").Update(map[string]interface{}{})),
+							r.DB(DbName).Table(DbTables["data"]).Get("cached").Update(map[string]interface{}{}))
 					}).RunWrite(session)
 				} else {
-					_, err = r.DB(DB_NAME).Table(DB_Tables[table]).Insert(values, r.InsertOpts{
+					_, err = r.DB(DbName).Table(DbTables[table]).Insert(values, r.InsertOpts{
 						Conflict: "replace",
 					}).RunWrite(session)
 				}
 				if err != nil {
 					panic(err)
 				}
-
 			}
-			if isWait {
-				wg.Done()
-			}
+			wg.Done()
 		}
 		updateNonceHashes := func() {
 			for _, tx := range tTxs {
@@ -605,16 +606,16 @@ func InsertBlock(blockIn *BlockIn) {
 				if !ok {
 					panic(ok)
 				}
-				_, err := r.Expr(map[string]interface{}{"changes": make([]interface{}, 0)}).Merge(r.DB(DB_NAME).Table(DB_Tables["transactions"]).GetAllByIndex("nonceHash", tx["nonceHash"]).Update(map[string]interface{}{"replacedBy": tx["hash"], "pending": false}, r.UpdateOpts{
+				_, err := r.Expr(map[string]interface{}{"changes": make([]interface{}, 0)}).Merge(r.DB(DbName).Table(DbTables["transactions"]).GetAllByIndex("nonceHash", tx["nonceHash"]).Update(map[string]interface{}{"replacedBy": tx["hash"], "pending": false}, r.UpdateOpts{
 					ReturnChanges: true,
 				})).Field("changes").ForEach(func(change r.Term) interface{} {
 					return r.Branch(
 						change.Field("old_val"), change.Field("old_val").Field("pending").Branch(
-							r.DB(DB_NAME).Table(DB_Tables["data"]).Get("cached").Update(
+							r.DB(DbName).Table(DbTables["data"]).Get("cached").Update(
 								func(post r.Term) interface{} {
 									return map[string]interface{}{"pendingTxs": post.Field("pendingTxs").Sub(1).Default(0)}
-								}), r.DB(DB_NAME).Table(DB_Tables["data"]).Get("cached").Update(map[string]interface{}{})),
-						r.DB(DB_NAME).Table(DB_Tables["data"]).Get("cached").Update(map[string]interface{}{}))
+								}), r.DB(DbName).Table(DbTables["data"]).Get("cached").Update(map[string]interface{}{})),
+						r.DB(DbName).Table(DbTables["data"]).Get("cached").Update(map[string]interface{}{}))
 				}).RunWrite(session)
 				if err != nil {
 					panic(err)
@@ -624,24 +625,34 @@ func InsertBlock(blockIn *BlockIn) {
 				r.DB(DB_NAME).Table(DB_Tables["data"]).Get("cached").Update(map[string]interface{}{"pendingTxs": r.Row.Field("pendingTxs").Sub(counter).Default(0), }).RunWrite(session)
 			} */
 		}
-		go updateNonceHashes()
-		go saveToDB("transactions", tTxs, true)
-		go saveToDB("logs", tLogs, true)
-		go saveToDB("traces", tTrace, true)
-		wg.Wait()
-		saveToDB("blocks", block, false)
-		saveToDB("blockscache", blockcache, false)
 
+		go updateNonceHashes()
+
+		wg.Add(1)
+		go saveToDB("transactions", tTxs)
+
+		wg.Add(1)
+		go saveToDB("logs", tLogs)
+
+		wg.Add(1)
+		go saveToDB("traces", tTrace)
+		wg.Wait()
+
+		wg.Add(1)
+		go saveToDB("blocks", block)
+
+		wg.Add(1)
+		go saveToDB("blockscache", blockCache)
+		wg.Wait()
 	}
+
 	go saveToDB()
 }
 
 //CalculateBlockMetrics calculate metrics of block
-func CalculateBlockMetrics(blockIn *BlockIn, txblocks *[]TxBlock) (bm BlockMetrics) {
+func CalculateBlockMetrics(blockIn *BlockIn) (bm BlockMetrics) {
 	bm.pendingTransaction = 0
 	bm.totalTransaction = 0
-	var totalgasprice *big.Int
-	totalgasprice = big.NewInt(0)
 
 	if blockIn.TxBlocks == nil {
 		return
@@ -649,39 +660,41 @@ func CalculateBlockMetrics(blockIn *BlockIn, txblocks *[]TxBlock) (bm BlockMetri
 	if blockIn.IsUncle {
 		return
 	}
-	var totalgasused *big.Int
-	totalgasused = big.NewInt(0)
-	for i, _txBlock := range *blockIn.TxBlocks {
+
+	totalGasPrice := big.NewInt(0)
+	totalGasUsed := big.NewInt(0)
+
+	for i, block := range *blockIn.TxBlocks {
 		bm.totalTransaction++
-		_tTx := TxMetric(blockIn, _txBlock, i)
-		if _tTx.pending {
+		ttx := TxMetric(blockIn, block, i)
+		if ttx.pending {
 			bm.pendingTransaction++
 		}
 
-		if _tTx.status == types.ReceiptStatusFailed {
+		if ttx.status == types.ReceiptStatusFailed {
 			bm.failedTxs++
 		}
-		if _tTx.status == types.ReceiptStatusSuccessful {
-			bm.successfullTxs++
+		if ttx.status == types.ReceiptStatusSuccessful {
+			bm.successfulTxs++
 		}
-		bm.accounts = append(bm.accounts, _tTx.to)
-		bm.accounts = append(bm.accounts, _tTx.from)
+		bm.accounts = append(bm.accounts, ttx.to)
+		bm.accounts = append(bm.accounts, ttx.from)
 
-		if _tTx.nonce == 0 {
-			bm.newAccounts = append(bm.newAccounts, _tTx.from)
+		if ttx.nonce == 0 {
+			bm.newAccounts = append(bm.newAccounts, ttx.from)
 		}
 
-		totalgasprice = totalgasprice.Add(_tTx.gasPrice, totalgasprice)
-		totalgasused = totalgasused.Add(_tTx.gasUsed, totalgasused)
+		totalGasPrice = totalGasPrice.Add(ttx.gasPrice, totalGasPrice)
+		totalGasUsed = totalGasUsed.Add(ttx.gasUsed, totalGasUsed)
 	}
 
 	if len(*blockIn.TxBlocks) > 0 {
-		avggasprice := totalgasprice.Div(totalgasprice, big.NewInt(int64(len(*blockIn.TxBlocks))))
-		bm.avgGasPrice = avggasprice
+		avgGasPrice := totalGasPrice.Div(totalGasPrice, big.NewInt(int64(len(*blockIn.TxBlocks))))
+		bm.avgGasPrice = avgGasPrice
 	}
 
-	bm.totalGasPrice = totalgasprice
-	bm.totalGasUsed = totalgasused
+	bm.totalGasPrice = totalGasPrice
+	bm.totalGasUsed = totalGasUsed
 
 	return
 }
@@ -690,7 +703,7 @@ func CalculateBlockMetrics(blockIn *BlockIn, txblocks *[]TxBlock) (bm BlockMetri
 func TxMetric(blockIn *BlockIn, txBlock TxBlock, index int) (tm TXMetric) {
 	tx := txBlock.Tx
 	receipt := blockIn.Receipts[index]
-	// if no reciept there is no transaction
+	// if no receipt there is no transaction
 	if receipt == nil {
 		log.Debug("Receipt not found for transaction", "hash", tx.Hash())
 		return
@@ -709,29 +722,29 @@ func TxMetric(blockIn *BlockIn, txBlock TxBlock, index int) (tm TXMetric) {
 	return tm
 }
 
-func formatBlockMetric(blockIn *BlockIn, block *types.Block, tHashes [][]byte, bm BlockMetrics) (map[string]interface{}, error) {
+func formatBlockMetric(blockIn *BlockIn, block *types.Block, bm BlockMetrics) (map[string]interface{}, error) {
 	head := block.Header() // copies the header once
 	minerBalance := blockIn.State.GetBalance(head.Coinbase)
 	txFees, blockReward, uncleReward := func() ([]byte, []byte, []byte) {
 		var (
-			_txfees []byte
-			_uncleR []byte
-			_blockR []byte
+			txfees  []byte
+			uncleRW []byte
+			blockRW []byte
 		)
 		if blockIn.TxFees != nil {
-			_txfees = blockIn.TxFees.Bytes()
+			txfees = blockIn.TxFees.Bytes()
 		} else {
-			_txfees = make([]byte, 0)
+			txfees = make([]byte, 0)
 		}
 		if blockIn.IsUncle {
-			_blockR = blockIn.UncleReward.Bytes()
-			_uncleR = make([]byte, 0)
+			blockRW = blockIn.UncleReward.Bytes()
+			uncleRW = make([]byte, 0)
 		} else {
 			blockR, uncleR := blockIn.BlockRewardFunc(block)
-			_blockR, _uncleR = blockR.Bytes(), uncleR.Bytes()
+			blockRW, uncleRW = blockR.Bytes(), uncleR.Bytes()
 
 		}
-		return _txfees, _blockR, _uncleR
+		return txfees, blockRW, uncleRW
 	}()
 	fmt.Println("head.Time", head.Time)
 	bfields := map[string]interface{}{
@@ -740,7 +753,7 @@ func formatBlockMetric(blockIn *BlockIn, block *types.Block, tHashes [][]byte, b
 		"hash":          head.Hash().Bytes(),
 		"timestamp":     time.Unix(head.Time.Int64(), 0),
 		"pendingTxs":    bm.pendingTransaction,
-		"successfulTxs": bm.successfullTxs,
+		"successfulTxs": bm.successfulTxs,
 		"failedTxs":     bm.failedTxs,
 		"totalTxs":      bm.totalTransaction,
 		"avgGasPrice":   bm.avgGasPrice,
@@ -794,13 +807,12 @@ func formatBlockMetric(blockIn *BlockIn, block *types.Block, tHashes [][]byte, b
 	return bfields, nil
 }
 
-func NewRethinkDB(_ctx *cli.Context) {
-	ctx = _ctx
+func NewRethinkDB(c *cli.Context) {
+	ctx = c
 	if ctx.GlobalBool(EthVMFlag.Name) {
 		err := Connect()
 		if err != nil {
-			panic("couldnt connect to rethinkdb")
+			panic("couldn't connect to rethinkdb")
 		}
 	}
 }
-

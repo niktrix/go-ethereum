@@ -599,7 +599,9 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	}
 	return nil
 }
+
 var dbhashes = syncmap.Map{}
+
 func (pool *TxPool) AddToDB(txs []*types.Transaction) {
 	if !rdb.IsDB() {
 		return
@@ -619,7 +621,7 @@ func (pool *TxPool) AddToDB(txs []*types.Transaction) {
 			invalidTxCounter.Inc(1)
 			continue
 		}
-		dbhashes.Store(hash.String(),1)
+		dbhashes.Store(hash.String(), 1)
 
 		var (
 			totalUsedGas = new(uint64)
@@ -639,6 +641,7 @@ func (pool *TxPool) AddToDB(txs []*types.Transaction) {
 		rdb.AddPendingTxs(pendingTxs)
 	}
 }
+
 // add validates a transaction and inserts it into the non-executable queue for
 // later pending promotion and execution. If the transaction is a replacement for
 // an already pending or queued one, it overwrites the previous and returns this

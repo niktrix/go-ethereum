@@ -191,7 +191,7 @@ func Connect() error {
 	r.DB(DbName).Table(DbTables["blocks"]).IndexCreate("intNumber").RunWrite(session)
 	r.DB(DbName).Table(DbTables["traces"]).IndexCreateFunc("trace_from", r.Row.Field("trace").Field("transfers").Field("from"), r.IndexCreateOpts{Multi: true}).RunWrite(session)
 	r.DB(DbName).Table(DbTables["traces"]).IndexCreateFunc("trace_to", r.Row.Field("trace").Field("transfers").Field("to"), r.IndexCreateOpts{Multi: true}).RunWrite(session)
-
+	r.DB(DbName).Table(DbTables["blockscache"]).IndexCreate("timestamp").RunWrite(session)
 	return err
 }
 

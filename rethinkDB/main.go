@@ -746,7 +746,6 @@ func formatBlockMetric(blockIn *BlockIn, block *types.Block, bm BlockMetrics) (m
 		}
 		return txfees, blockRW, uncleRW
 	}()
-	fmt.Println("head.Time", head.Time)
 	bfields := map[string]interface{}{
 		"number":        head.Number.Bytes(),
 		"intNumber":     hexutil.Uint64(head.Number.Uint64()),
@@ -757,7 +756,7 @@ func formatBlockMetric(blockIn *BlockIn, block *types.Block, bm BlockMetrics) (m
 		"failedTxs":     bm.failedTxs,
 		"totalTxs":      bm.totalTransaction,
 		"avgGasPrice":   bm.avgGasPrice,
-		"size":          big.NewInt(int64(hexutil.Uint64(block.Size()))),
+		"size":          int64(hexutil.Uint64(block.Size())),
 		"accounts":      bm.accounts,
 		"newaccounts":   bm.newAccounts,
 		"miner":         head.Coinbase.Bytes(),

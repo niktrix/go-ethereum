@@ -757,7 +757,7 @@ func formatBlockMetric(blockIn *BlockIn, block *types.Block, bm BlockMetrics) (m
 		"failedTxs":     bm.failedTxs,
 		"totalTxs":      bm.totalTransaction,
 		"avgGasPrice":   bm.avgGasPrice,
-		"size":          big.NewInt(int64(hexutil.Uint64(block.Size()))).Bytes(),
+		"size":          big.NewInt(int64(hexutil.Uint64(block.Size()))),
 		"accounts":      bm.accounts,
 		"newaccounts":   bm.newAccounts,
 		"miner":         head.Coinbase.Bytes(),

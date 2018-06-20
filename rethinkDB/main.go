@@ -653,6 +653,7 @@ func InsertBlock(blockIn *BlockIn) {
 func CalculateBlockMetrics(blockIn *BlockIn) (bm BlockMetrics) {
 	bm.pendingTransaction = 0
 	bm.totalTransaction = 0
+	bm.avgGasPrice = big.NewInt(0)
 
 	if blockIn.TxBlocks == nil {
 		return
@@ -746,6 +747,8 @@ func formatBlockMetric(blockIn *BlockIn, block *types.Block, bm BlockMetrics) (m
 		}
 		return txfees, blockRW, uncleRW
 	}()
+	fmt.Println("bm.avgGasPrice", bm.avgGasPrice)
+
 	bfields := map[string]interface{}{
 		"number":        head.Number.Bytes(),
 		"intNumber":     hexutil.Uint64(head.Number.Uint64()),
@@ -755,14 +758,18 @@ func formatBlockMetric(blockIn *BlockIn, block *types.Block, bm BlockMetrics) (m
 		"successfulTxs": bm.successfulTxs,
 		"failedTxs":     bm.failedTxs,
 		"totalTxs":      bm.totalTransaction,
-		"avgGasPrice":   bm.avgGasPrice,
-		"size":          int64(hexutil.Uint64(block.Size())),
-		"accounts":      bm.accounts,
-		"newaccounts":   bm.newAccounts,
-		"miner":         head.Coinbase.Bytes(),
-		"isUncle":       blockIn.IsUncle,
-		"blockReward":   blockReward,
-		"uncleReward":   uncleReward,
+		"avgGasPrice":   bm.avgGasPrice.Uint64(),
+
+		"size":     int64(hexutil.Uint64(block.Size())),
+		"accounts": bm.accounts,
+		"gasLimit": int64(head.GasLimit),
+		"gasUsed":  int64(head.GasUsed),
+
+		"newaccounts": bm.newAccounts,
+		"miner":       head.Coinbase.Bytes(),
+		"isUncle":     blockIn.IsUncle,
+		"blockReward": blockReward,
+		"uncleReward": uncleReward,
 		// "parentHash":   head.ParentHash.Bytes(),
 		// "nonce":        head.Nonce,
 		// "mixHash":      head.MixDigest.Bytes(),

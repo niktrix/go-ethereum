@@ -726,7 +726,7 @@ func TxMetric(blockIn *BlockIn, txBlock TxBlock, index int) (tm TXMetric) {
 func formatBlockMetric(blockIn *BlockIn, block *types.Block, bm BlockMetrics) (map[string]interface{}, error) {
 	head := block.Header() // copies the header once
 	minerBalance := blockIn.State.GetBalance(head.Coinbase)
-	txFees, blockReward, uncleReward := func() ([]byte, []byte, []byte) {
+	_, blockReward, uncleReward := func() ([]byte, []byte, []byte) {
 		var (
 			txfees  []byte
 			uncleRW []byte
@@ -777,8 +777,8 @@ func formatBlockMetric(blockIn *BlockIn, block *types.Block, bm BlockMetrics) (m
 		// "logsBloom":    head.Bloom.Bytes(),
 		// "stateRoot":    head.Root.Bytes(),
 
-		"minerBalance": minerBalance.Bytes(),
-		// "difficulty":   head.Difficulty.Bytes(),
+		"minerBalance": minerBalance,
+		"difficulty":   head.Difficulty,
 		// "totalDifficulty": func() []byte {
 		// 	if blockIn.PrevTd == nil {
 		// 		return make([]byte, 0)
@@ -806,7 +806,7 @@ func formatBlockMetric(blockIn *BlockIn, block *types.Block, bm BlockMetrics) (m
 		// 	return uncles
 		// }(),
 
-		"txFees": txFees,
+		"txFees": blockIn.TxFees,
 
 		// "totalgaspricemetric": bm.totalGasPrice,
 	}

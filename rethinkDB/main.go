@@ -726,23 +726,23 @@ func TxMetric(blockIn *BlockIn, txBlock TxBlock, index int) (tm TXMetric) {
 func formatBlockMetric(blockIn *BlockIn, block *types.Block, bm BlockMetrics) (map[string]interface{}, error) {
 	head := block.Header() // copies the header once
 	minerBalance := blockIn.State.GetBalance(head.Coinbase)
-	_, blockReward, uncleReward := func() ([]byte, []byte, []byte) {
+	txfees, blockReward, uncleReward := func() (*big.Int, *big.Int, *big.Int) {
 		var (
-			txfees  []byte
-			uncleRW []byte
-			blockRW []byte
+			txfees  *big.Int
+			uncleRW *big.Int
+			blockRW *big.Int
 		)
 		if blockIn.TxFees != nil {
-			txfees = blockIn.TxFees.Bytes()
+			txfees = blockIn.TxFees
 		} else {
-			txfees = make([]byte, 0)
+			txfees = big.NewInt(0)
 		}
 		if blockIn.IsUncle {
-			blockRW = blockIn.UncleReward.Bytes()
-			uncleRW = make([]byte, 0)
+			blockRW = blockIn.UncleReward
+			uncleRW = big.NewInt(0)
 		} else {
 			blockR, uncleR := blockIn.BlockRewardFunc(block)
-			blockRW, uncleRW = blockR.Bytes(), uncleR.Bytes()
+			blockRW, uncleRW = blockR, uncleR
 
 		}
 		return txfees, blockRW, uncleRW
@@ -750,7 +750,7 @@ func formatBlockMetric(blockIn *BlockIn, block *types.Block, bm BlockMetrics) (m
 	fmt.Println("bm.avgGasPrice", bm.avgGasPrice)
 
 	bfields := map[string]interface{}{
-		"number":        head.Number.Bytes(),
+		"number":        head.Number,
 		"intNumber":     hexutil.Uint64(head.Number.Uint64()),
 		"hash":          head.Hash().Bytes(),
 		"timestamp":     time.Unix(head.Time.Int64(), 0),
@@ -768,8 +768,8 @@ func formatBlockMetric(blockIn *BlockIn, block *types.Block, bm BlockMetrics) (m
 		"newaccounts": bm.newAccounts,
 		"miner":       head.Coinbase.Bytes(),
 		"isUncle":     blockIn.IsUncle,
-		"blockReward": blockReward,
-		"uncleReward": uncleReward,
+		"blockReward": blockReward.Uint64(),
+		"uncleReward": uncleReward.Uint64(),
 		// "parentHash":   head.ParentHash.Bytes(),
 		// "nonce":        head.Nonce,
 		// "mixHash":      head.MixDigest.Bytes(),
@@ -806,7 +806,7 @@ func formatBlockMetric(blockIn *BlockIn, block *types.Block, bm BlockMetrics) (m
 		// 	return uncles
 		// }(),
 
-		"txFees": blockIn.TxFees,
+		"txFees": txfees.Uint64(),
 
 		// "totalgaspricemetric": bm.totalGasPrice,
 	}
@@ -822,3 +822,4 @@ func NewRethinkDB(c *cli.Context) {
 		}
 	}
 }
+

@@ -39,11 +39,11 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/ethereum/go-ethereum/rethinkDB"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/trie"
 	"github.com/hashicorp/golang-lru"
 	"gopkg.in/karalabe/cookiejar.v2/collections/prque"
-	"github.com/ethereum/go-ethereum/rethinkDB"
 )
 
 var (
@@ -692,7 +692,7 @@ func (bc *BlockChain) procFutureBlocks() {
 type WriteStatus byte
 
 const (
-	NonStatTy   WriteStatus = iota
+	NonStatTy WriteStatus = iota
 	CanonStatTy
 	SideStatTy
 )
@@ -899,45 +899,43 @@ func (bc *BlockChain) WriteBlockWithState(block *types.Block, receipts []*types.
 	triedb := bc.stateCache.TrieDB()
 
 	// Insert into rethink (if txBlocks == nil means that the code comes from miner (which we're not interested in that part)
-	if txBlocks != nil {
-		rdb.InsertBlock(&rdb.BlockIn{
-			Block:    block,
-			TxBlocks: txBlocks,
-			State:    state,
-			PrevTd:   bc.GetTd(block.ParentHash(), block.NumberU64()-1),
-			Receipts: receipts,
-			Signer:   types.MakeSigner(bc.Config(), block.Header().Number),
-			IsUncle:  false,
-			TxFees:   txFees,
-			BlockRewardFunc: func(block *types.Block) (*big.Int, *big.Int) {
-				blockReward := FrontierBlockReward
-				if bc.chainConfig.IsByzantium(block.Header().Number) {
-					blockReward = ByzantiumBlockReward
+	rdb.InsertBlock(&rdb.BlockIn{
+		Block:    block,
+		TxBlocks: txBlocks,
+		State:    state,
+		PrevTd:   bc.GetTd(block.ParentHash(), block.NumberU64()-1),
+		Receipts: receipts,
+		Signer:   types.MakeSigner(bc.Config(), block.Header().Number),
+		IsUncle:  false,
+		TxFees:   txFees,
+		BlockRewardFunc: func(block *types.Block) (*big.Int, *big.Int) {
+			blockReward := FrontierBlockReward
+			if bc.chainConfig.IsByzantium(block.Header().Number) {
+				blockReward = ByzantiumBlockReward
+			}
+			reward := new(big.Int).Set(blockReward)
+			multiplier := new(big.Int).Div(blockReward, big32)
+			uncleReward := new(big.Int).Mul(multiplier, big.NewInt(int64(len(block.Uncles()))))
+			return reward, uncleReward
+		},
+		UncleRewardFunc: func(uncles []*types.Header, index int) *big.Int {
+			blockReward := FrontierBlockReward
+			if bc.chainConfig.IsByzantium(block.Header().Number) {
+				blockReward = ByzantiumBlockReward
+			}
+			r := new(big.Int)
+			for i, uncle := range uncles {
+				r.Add(uncle.Number, big8)
+				r.Sub(r, block.Header().Number)
+				r.Mul(r, blockReward)
+				r.Div(r, big8)
+				if i == index {
+					return r
 				}
-				reward := new(big.Int).Set(blockReward)
-				multiplier := new(big.Int).Div(blockReward, big32)
-				uncleReward := new(big.Int).Mul(multiplier, big.NewInt(int64(len(block.Uncles()))))
-				return reward, uncleReward
-			},
-			UncleRewardFunc: func(uncles []*types.Header, index int) *big.Int {
-				blockReward := FrontierBlockReward
-				if bc.chainConfig.IsByzantium(block.Header().Number) {
-					blockReward = ByzantiumBlockReward
-				}
-				r := new(big.Int)
-				for i, uncle := range uncles {
-					r.Add(uncle.Number, big8)
-					r.Sub(r, block.Header().Number)
-					r.Mul(r, blockReward)
-					r.Div(r, big8)
-					if i == index {
-						return r
-					}
-				}
-				return big.NewInt(0)
-			},
-		})
-	}
+			}
+			return big.NewInt(0)
+		},
+	})
 
 	// If we're running an archive node, always flush
 	if bc.cacheConfig.Disabled {

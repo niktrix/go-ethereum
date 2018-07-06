@@ -43,11 +43,15 @@ var (
 	}
 	EthVMRemoteFlag = cli.BoolFlag{
 		Name:  "ethvm.remote",
-		Usage: "use remote rethink database, make sure to set RETHINKDB_URL env variable ",
+		Usage: "Use remote rethink database, make sure to set RETHINKDB_URL env variable",
 	}
 	EthVMCertFlag = cli.BoolFlag{
 		Name:  "ethvm.cert",
-		Usage: "use custom ssl cert for rethinkdb connection, make sure to set RETHINKDB_CERT env variable ",
+		Usage: "Use custom ssl cert for rethinkdb connection, make sure to set RETHINKDB_CERT env variable",
+	}
+	EthVMDbNameFlag = cli.StringFlag{
+		Name:  "ethvm.dbName",
+		Usage: "Select which name will be asigned to the RethinkDB db",
 	}
 	ctx      *cli.Context
 	session  *r.Session
@@ -122,12 +126,14 @@ func Connect() error {
 		s   *r.Session
 		err error
 	)
+
 	if ctx.GlobalBool(EthVMFlag.Name) && !ctx.GlobalBool(EthVMRemoteFlag.Name) {
 		s, err = r.Connect(r.ConnectOpts{
 			Address: "localhost:28015",
 		})
 	} else if ctx.GlobalBool(EthVMRemoteFlag.Name) && !ctx.GlobalBool(EthVMCertFlag.Name) {
 		rethinkurl, _ := url.Parse(os.Getenv("RETHINKDB_URL"))
+		log.Debug("rethinkdb", "url", rethinkurl)
 		password, setpass := rethinkurl.User.Password()
 		if !setpass {
 			panic("Password needs to be set in $RETHINKDB_URL")
@@ -164,12 +170,19 @@ func Connect() error {
 		}
 
 	}
+
 	if err != nil {
 		panic(err)
 	}
 	session = s
 
+	// Create DB
+	if ctx.GlobalString(EthVMDbNameFlag.Name) != "" {
+		DbName = ctx.GlobalString(EthVMDbNameFlag.Name)
+	}
 	r.DBCreate(DbName).RunWrite(session)
+
+	// Create tables
 	for _, v := range DbTables {
 		r.DB(DbName).TableCreate(v, r.TableCreateOpts{
 			PrimaryKey: "hash",
@@ -442,8 +455,10 @@ func formatTx(blockIn *BlockIn, txBlock TxBlock, index int) (interface{}, map[st
 
 func InsertBlock(blockIn *BlockIn) {
 	if !ctx.GlobalBool(EthVMFlag.Name) {
+		log.Debug("Ignoring insertion of block")
 		return
 	}
+	log.Debug("Inserting new block")
 	processTxs := func(txblocks *[]TxBlock) ([][]byte, []interface{}, []interface{}, []interface{}) {
 		var tHashes [][]byte
 		var tTxs []interface{}
@@ -621,9 +636,6 @@ func InsertBlock(blockIn *BlockIn) {
 					panic(err)
 				}
 			}
-			/*if counter > 0 {
-				r.DB(DB_NAME).Table(DB_Tables["data"]).Get("cached").Update(map[string]interface{}{"pendingTxs": r.Row.Field("pendingTxs").Sub(counter).Default(0), }).RunWrite(session)
-			} */
 		}
 
 		go updateNonceHashes()
@@ -822,4 +834,3 @@ func NewRethinkDB(c *cli.Context) {
 		}
 	}
 }
-

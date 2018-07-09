@@ -39,20 +39,19 @@ import (
 var (
 	EthVMFlag = cli.BoolFlag{
 		Name:  "ethvm",
-		Usage: "Save blockchain data to external db, default rethinkdb local",
+		Usage: "Save blockchain data to external db, make sure to set RETHINKDB_URL env variable",
 	}
-	EthVMRemoteFlag = cli.BoolFlag{
-		Name:  "ethvm.remote",
-		Usage: "Use remote rethink database, make sure to set RETHINKDB_URL env variable",
-	}
+
 	EthVMCertFlag = cli.BoolFlag{
 		Name:  "ethvm.cert",
 		Usage: "Use custom ssl cert for rethinkdb connection, make sure to set RETHINKDB_CERT env variable",
 	}
+
 	EthVMDbNameFlag = cli.StringFlag{
 		Name:  "ethvm.dbName",
 		Usage: "Select which name will be asigned to the RethinkDB db",
 	}
+
 	ctx      *cli.Context
 	session  *r.Session
 	DbName   = "eth_mainnet"
@@ -121,65 +120,68 @@ type IPendingTx struct {
 	Block   *types.Block
 }
 
-func Connect() error {
+func connect() error {
 	var (
-		s   *r.Session
-		err error
+		opts *r.ConnectOpts
+		err  error
 	)
 
-	if ctx.GlobalBool(EthVMFlag.Name) && !ctx.GlobalBool(EthVMRemoteFlag.Name) {
-		s, err = r.Connect(r.ConnectOpts{
-			Address: "localhost:28015",
-		})
-	} else if ctx.GlobalBool(EthVMRemoteFlag.Name) && !ctx.GlobalBool(EthVMCertFlag.Name) {
-		rethinkurl, _ := url.Parse(os.Getenv("RETHINKDB_URL"))
-		log.Debug("rethinkdb", "url", rethinkurl)
-		password, setpass := rethinkurl.User.Password()
-		if !setpass {
-			panic("Password needs to be set in $RETHINKDB_URL")
-		}
-		s, err = r.Connect(r.ConnectOpts{
-			Address:  rethinkurl.Host,
-			Username: rethinkurl.User.Username(),
-			Password: password,
-		})
-	} else if ctx.GlobalBool(EthVMRemoteFlag.Name) && ctx.GlobalBool(EthVMCertFlag.Name) {
-		roots := x509.NewCertPool()
-		cert := os.Getenv("RETHINKDB_CERT_RAW")
-		roots.AppendCertsFromPEM([]byte(cert))
-		rethinkurl, _ := url.Parse(os.Getenv("RETHINKDB_URL"))
-		password, setpass := rethinkurl.User.Password()
-		if !setpass {
-			panic("Password needs to be set in $RETHINKDB_URL")
-		}
-		if cert != "" {
-			s, err = r.Connect(r.ConnectOpts{
-				Address:  rethinkurl.Host,
-				Username: rethinkurl.User.Username(),
-				Password: password,
-				TLSConfig: &tls.Config{
-					RootCAs: roots,
-				},
-			})
-		} else {
-			s, err = r.Connect(r.ConnectOpts{
-				Address:  rethinkurl.Host,
-				Username: rethinkurl.User.Username(),
-				Password: password,
-			})
+	// Read RETHINKDB_URL env variable
+	if ctx.GlobalBool(EthVMFlag.Name) {
+		rethinkurl, err := url.Parse(os.Getenv("RETHINKDB_URL"))
+		if err != nil {
+			panic("Could not parse correctly env RETHINKDB_URL!")
 		}
 
+		if rethinkurl.User != nil {
+			password, isSet := rethinkurl.User.Password()
+			if !isSet {
+				panic("Password not especified correctly in $RETHINKDB_URL")
+			}
+			opts = &r.ConnectOpts{
+				Address:  rethinkurl.Host,
+				Username: rethinkurl.User.Username(),
+				Password: password,
+			}
+		} else {
+			opts = &r.ConnectOpts{
+				Address: rethinkurl.Host,
+			}
+		}
 	}
 
+	// Double check that variable has been read correctly
+	if opts == nil {
+		panic("Could not parse correctly env RETHINKDB_URL!")
+	}
+
+	// Read RETHINKDB_CERT_RAW env variable if specified
+	if ctx.GlobalBool(EthVMCertFlag.Name) {
+		cert := os.Getenv("RETHINKDB_CERT_RAW")
+		if cert == "" {
+			panic("$RETHINKDB_CERT_RAW value is empty or invalid")
+		}
+
+		roots := x509.NewCertPool()
+		roots.AppendCertsFromPEM([]byte(cert))
+
+		opts.TLSConfig = &tls.Config{
+			RootCAs: roots,
+		}
+	}
+
+	// Connect
+	session, err = r.Connect(*opts)
 	if err != nil {
 		panic(err)
 	}
-	session = s
 
-	// Create DB
+	// Change DB Name if necessary
 	if ctx.GlobalString(EthVMDbNameFlag.Name) != "" {
 		DbName = ctx.GlobalString(EthVMDbNameFlag.Name)
 	}
+
+	// Create DB
 	r.DBCreate(DbName).RunWrite(session)
 
 	// Create tables
@@ -188,6 +190,8 @@ func Connect() error {
 			PrimaryKey: "hash",
 		}).RunWrite(session)
 	}
+
+	// Setup indices
 	r.DB(DbName).Table(DbTables["data"]).Insert(map[string]interface{}{
 		"hash":       "cached",
 		"pendingTxs": 0,
@@ -205,6 +209,7 @@ func Connect() error {
 	r.DB(DbName).Table(DbTables["traces"]).IndexCreateFunc("trace_from", r.Row.Field("trace").Field("transfers").Field("from"), r.IndexCreateOpts{Multi: true}).RunWrite(session)
 	r.DB(DbName).Table(DbTables["traces"]).IndexCreateFunc("trace_to", r.Row.Field("trace").Field("transfers").Field("to"), r.IndexCreateOpts{Multi: true}).RunWrite(session)
 	r.DB(DbName).Table(DbTables["blockscache"]).IndexCreate("timestamp").RunWrite(session)
+
 	return err
 }
 
@@ -216,6 +221,7 @@ func InsertGenesis(gAlloc map[common.Address][]byte, block *types.Block) {
 	if !ctx.GlobalBool(EthVMFlag.Name) {
 		return
 	}
+
 	rTrace := map[string]interface{}{
 		"hash":           common.BytesToHash([]byte("GENESIS_TX")).Bytes(),
 		"blockHash":      block.Hash().Bytes(),
@@ -249,22 +255,25 @@ func InsertGenesis(gAlloc map[common.Address][]byte, block *types.Block) {
 	_, err := r.DB(DbName).Table(DbTables["traces"]).Insert(rTrace, r.InsertOpts{
 		Conflict: "replace",
 	}).RunWrite(session)
+
 	if err != nil {
 		panic(err)
 	}
 }
 
 func AddPendingTxs(pTxs []*IPendingTx) {
-	var wg sync.WaitGroup
 	if !ctx.GlobalBool(EthVMFlag.Name) {
 		return
 	}
-	ts := big.NewInt(time.Now().Unix())
+
 	var (
+		wg     sync.WaitGroup
+		ts     = big.NewInt(time.Now().Unix())
 		txs    []interface{}
 		logs   []interface{}
 		traces []interface{}
 	)
+
 	for _, pTx := range pTxs {
 		var tReceipts types.Receipts
 		txBlock := TxBlock{
@@ -290,6 +299,7 @@ func AddPendingTxs(pTxs []*IPendingTx) {
 			traces = append(traces, ttrace)
 		}
 	}
+
 	saveToDB := func(table string, values interface{}) {
 		defer wg.Done()
 		if values != nil {
@@ -305,12 +315,12 @@ func AddPendingTxs(pTxs []*IPendingTx) {
 			}
 		}
 	}
+
 	wg.Add(3)
 	go saveToDB("transactions", txs)
 	go saveToDB("logs", logs)
 	go saveToDB("traces", traces)
 	wg.Wait()
-	//fmt.Printf("New Pending Txs %d \n", len(pTxs))
 }
 
 func formatTx(blockIn *BlockIn, txBlock TxBlock, index int) (interface{}, map[string]interface{}, map[string]interface{}) {
@@ -455,10 +465,9 @@ func formatTx(blockIn *BlockIn, txBlock TxBlock, index int) (interface{}, map[st
 
 func InsertBlock(blockIn *BlockIn) {
 	if !ctx.GlobalBool(EthVMFlag.Name) {
-		log.Debug("Ignoring insertion of block")
 		return
 	}
-	log.Debug("Inserting new block")
+
 	processTxs := func(txblocks *[]TxBlock) ([][]byte, []interface{}, []interface{}, []interface{}) {
 		var tHashes [][]byte
 		var tTxs []interface{}
@@ -481,6 +490,7 @@ func InsertBlock(blockIn *BlockIn) {
 		}
 		return tHashes, tTxs, tLogs, tTrace
 	}
+
 	formatBlock := func(block *types.Block, tHashes [][]byte) (map[string]interface{}, error) {
 		head := block.Header() // copies the header once
 		minerBalance := blockIn.State.GetBalance(head.Coinbase)
@@ -542,7 +552,6 @@ func InsertBlock(blockIn *BlockIn) {
 						IsUncle:     true,
 						UncleReward: blockIn.UncleRewardFunc(block.Uncles(), i),
 					})
-					fmt.Printf("New Uncle block %s \n", uncle.Hash().String())
 				}
 				return uncles
 			}(),
@@ -586,6 +595,7 @@ func InsertBlock(blockIn *BlockIn) {
 			},
 		})
 	}
+
 	saveToDB := func() {
 		var wg sync.WaitGroup
 		saveToDB := func(table string, values interface{}) {
@@ -655,13 +665,14 @@ func InsertBlock(blockIn *BlockIn) {
 
 		wg.Add(1)
 		go saveToDB("blockscache", blockCache)
+
 		wg.Wait()
 	}
 
 	go saveToDB()
 }
 
-//CalculateBlockMetrics calculate metrics of block
+//CalculateBlockMetrics Calculates metrics of block
 func CalculateBlockMetrics(blockIn *BlockIn) (bm BlockMetrics) {
 	bm.pendingTransaction = 0
 	bm.totalTransaction = 0
@@ -782,45 +793,10 @@ func formatBlockMetric(blockIn *BlockIn, block *types.Block, bm BlockMetrics) (m
 		"isUncle":     blockIn.IsUncle,
 		"blockReward": blockReward.Uint64(),
 		"uncleReward": uncleReward.Uint64(),
-		// "parentHash":   head.ParentHash.Bytes(),
-		// "nonce":        head.Nonce,
-		// "mixHash":      head.MixDigest.Bytes(),
-		// "sha3Uncles":   head.UncleHash.Bytes(),
-		// "logsBloom":    head.Bloom.Bytes(),
-		// "stateRoot":    head.Root.Bytes(),
 
 		"minerBalance": minerBalance,
 		"difficulty":   head.Difficulty,
-		// "totalDifficulty": func() []byte {
-		// 	if blockIn.PrevTd == nil {
-		// 		return make([]byte, 0)
-		// 	}
-		// 	return (new(big.Int).Add(block.Difficulty(), blockIn.PrevTd)).Bytes()
-		// }(),
-		// "extraData":         head.Extra,
-		// "gasLimit":          big.NewInt(int64(head.GasLimit)).Bytes(),
-		// "gasUsed":           big.NewInt(int64(head.GasUsed)).Bytes(),
-		// "transactionsRoot":  head.TxHash.Bytes(),
-		// "receiptsRoot":      head.ReceiptHash.Bytes(),
-		// "transactionHashes": tHashes,
-		// "uncleHashes": func() [][]byte {
-		// 	uncles := make([][]byte, len(block.Uncles()))
-		// 	for i, uncle := range block.Uncles() {
-		// 		uncles[i] = uncle.Hash().Bytes()
-		// 		InsertBlock(&BlockIn{
-		// 			Block:       types.NewBlockWithHeader(uncle),
-		// 			State:       blockIn.State,
-		// 			IsUncle:     true,
-		// 			UncleReward: blockIn.UncleRewardFunc(block.Uncles(), i),
-		// 		})
-		// 		fmt.Printf("New Uncle block %s \n", uncle.Hash().String())
-		// 	}
-		// 	return uncles
-		// }(),
-
-		"txFees": txfees.Uint64(),
-
-		// "totalgaspricemetric": bm.totalGasPrice,
+		"txFees":       txfees.Uint64(),
 	}
 	return bfields, nil
 }
@@ -828,9 +804,9 @@ func formatBlockMetric(blockIn *BlockIn, block *types.Block, bm BlockMetrics) (m
 func NewRethinkDB(c *cli.Context) {
 	ctx = c
 	if ctx.GlobalBool(EthVMFlag.Name) {
-		err := Connect()
+		err := connect()
 		if err != nil {
-			panic("couldn't connect to rethinkdb")
+			panic("Couldn't connect to RethinkDB")
 		}
 	}
 }

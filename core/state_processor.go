@@ -103,7 +103,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 // and uses the input parameters for its environment. It returns the receipt
 // for the transaction, gas used and an error if the transaction failed,
 // indicating the block was invalid.
-func ApplyTransaction(config *params.ChainConfig, bc *BlockChain, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, cfg vm.Config) (*types.Receipt, uint64, error) {
+func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, cfg vm.Config) (*types.Receipt, uint64, error) {
 	msg, err := tx.AsMessage(types.MakeSigner(config, header.Number))
 	if err != nil {
 		return nil, 0, err
@@ -149,9 +149,10 @@ func TraceApplyTransaction(config *params.ChainConfig, bc *BlockChain, author *c
 	}
 	// Create a new context to be used in the EVM environment
 	context := NewEVMContext(msg, header, bc, author)
+	// Create a new JS tracer
+	tracer, _ := vm.NewJavascriptTracer(rdb.TraceStr)
 	// Create a new environment which holds all relevant information
 	// about the transaction and calling mechanisms.
-	tracer, _ := vm.NewJavascriptTracer(rdb.TraceStr)
 	vmenv := vm.NewEVM(context, statedb, config, vm.Config{Debug: true, Tracer: tracer})
 	// Apply the transaction to the current state (included in the env)
 	_, gas, failed, err := ApplyMessage(vmenv, msg, gp)

@@ -695,12 +695,14 @@ func CalculateBlockMetrics(blockIn *BlockIn) (bm BlockMetrics) {
 			bm.pendingTransaction++
 		}
 
-		if ttx.status == types.ReceiptStatusFailed {
+		if ttx.status == uint(types.ReceiptStatusFailed) {
 			bm.failedTxs++
 		}
-		if ttx.status == types.ReceiptStatusSuccessful {
+
+		if ttx.status == uint(types.ReceiptStatusSuccessful) {
 			bm.successfulTxs++
 		}
+
 		bm.accounts = append(bm.accounts, ttx.to)
 		bm.accounts = append(bm.accounts, ttx.from)
 
@@ -738,7 +740,7 @@ func TxMetric(blockIn *BlockIn, txBlock TxBlock, index int) (tm TXMetric) {
 	tm.gasPrice = tx.GasPrice()
 	tm.gasUsed = big.NewInt(int64(receipt.GasUsed))
 	tm.pending = txBlock.Pending
-	tm.status = receipt.Status
+	tm.status = uint(receipt.Status)
 	tm.nonce = tx.Nonce()
 	tm.to = tx.To()
 	tm.from = &from

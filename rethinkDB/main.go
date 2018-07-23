@@ -218,7 +218,7 @@ func IsDB() bool {
 }
 
 func InsertGenesis(gAlloc map[common.Address][]byte, block *types.Block) {
-	if !ctx.GlobalBool(EthVMFlag.Name) {
+	if ctx == nil || !ctx.GlobalBool(EthVMFlag.Name) {
 		return
 	}
 

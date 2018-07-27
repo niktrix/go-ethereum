@@ -36,11 +36,11 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/ethvm"
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/params"
-	"github.com/ethereum/go-ethereum/rethinkDB"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/trie"
 	"github.com/hashicorp/golang-lru"
@@ -875,7 +875,7 @@ func (bc *BlockChain) WriteBlockWithoutState(block *types.Block, td *big.Int) (e
 }
 
 // WriteBlockWithState writes the block and all associated state to the database.
-func (bc *BlockChain) WriteBlockWithState(block *types.Block, receipts []*types.Receipt, state *state.StateDB, txBlocks *[]rdb.TxBlock, txFees *big.Int) (status WriteStatus, err error) {
+func (bc *BlockChain) WriteBlockWithState(block *types.Block, receipts []*types.Receipt, state *state.StateDB, txBlocks *[]ethvm.TxBlock, txFees *big.Int) (status WriteStatus, err error) {
 	bc.wg.Add(1)
 	defer bc.wg.Done()
 
@@ -906,44 +906,17 @@ func (bc *BlockChain) WriteBlockWithState(block *types.Block, receipts []*types.
 	}
 	triedb := bc.stateCache.TrieDB()
 
-	// Insert into rethink (if txBlocks == nil means that the code comes from miner (which we're not interested in that part)
-	rdb.InsertBlock(&rdb.BlockIn{
-		Block:    block,
-		TxBlocks: txBlocks,
-		State:    state,
-		PrevTd:   bc.GetTd(block.ParentHash(), block.NumberU64()-1),
-		Receipts: receipts,
-		Signer:   types.MakeSigner(bc.Config(), block.Header().Number),
-		IsUncle:  false,
-		TxFees:   txFees,
-		BlockRewardFunc: func(block *types.Block) (*big.Int, *big.Int) {
-			blockReward := FrontierBlockReward
-			if bc.chainConfig.IsByzantium(block.Header().Number) {
-				blockReward = ByzantiumBlockReward
-			}
-			reward := new(big.Int).Set(blockReward)
-			multiplier := new(big.Int).Div(blockReward, big32)
-			uncleReward := new(big.Int).Mul(multiplier, big.NewInt(int64(len(block.Uncles()))))
-			return reward, uncleReward
-		},
-		UncleRewardFunc: func(uncles []*types.Header, index int) *big.Int {
-			blockReward := FrontierBlockReward
-			if bc.chainConfig.IsByzantium(block.Header().Number) {
-				blockReward = ByzantiumBlockReward
-			}
-			r := new(big.Int)
-			for i, uncle := range uncles {
-				r.Add(uncle.Number, big8)
-				r.Sub(r, block.Header().Number)
-				r.Mul(r, blockReward)
-				r.Div(r, big8)
-				if i == index {
-					return r
-				}
-			}
-			return big.NewInt(0)
-		},
-	})
+	// Gather tx data
+	td := bc.GetTd(block.ParentHash(), block.NumberU64()-1)
+	signer := types.MakeSigner(bc.Config(), block.Header().Number)
+	blockReward := FrontierBlockReward
+	if bc.chainConfig.IsByzantium(block.Header().Number) {
+		blockReward = ByzantiumBlockReward
+	}
+
+	// Add block information to ethvm
+	blockIn := ethvm.NewBlockIn(block, txBlocks, state, td, receipts, signer, txFees, blockReward)
+	ethvm.GetInstance().InsertBlock(blockIn)
 
 	// If we're running an archive node, always flush
 	if bc.cacheConfig.Disabled {

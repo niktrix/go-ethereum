@@ -32,10 +32,10 @@ import (
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/ethvm"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
-	"github.com/ethereum/go-ethereum/rethinkDB"
 )
 
 //go:generate gencodec -type Genesis -field-override genesisSpecMarshaling -out gen_genesis.go
@@ -268,7 +268,7 @@ func (g *Genesis) Commit(db ethdb.Database) (*types.Block, error) {
 	for add, acc := range g.Alloc {
 		genAccount[add] = acc.Balance.Bytes()
 	}
-	rdb.InsertGenesis(genAccount, block)
+
 	block = g.ToBlock(db)
 	if block.Number().Sign() != 0 {
 		return nil, fmt.Errorf("can't commit genesis block with number > 0")
@@ -285,6 +285,10 @@ func (g *Genesis) Commit(db ethdb.Database) (*types.Block, error) {
 		config = params.AllEthashProtocolChanges
 	}
 	rawdb.WriteChainConfig(db, block.Hash(), config)
+
+	// Store genesis block inside EthVM (if applies)
+	ethvm.GetInstance().InsertGenesisTrace(genAccount, block)
+
 	return block, nil
 }
 

@@ -24,8 +24,8 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethvm"
 	"github.com/ethereum/go-ethereum/params"
-	"github.com/ethereum/go-ethereum/rethinkDB"
 	"math/big"
 )
 
@@ -63,7 +63,7 @@ func NewStateProcessor(config *params.ChainConfig, bc *BlockChain, engine consen
 // Process returns the receipts and logs accumulated during the process and
 // returns the amount of gas that was used in the process. If any of the
 // transactions failed to execute due to insufficient gas it will return an error.
-func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg vm.Config) (types.Receipts, []*types.Log, uint64, []rdb.TxBlock, *big.Int, error) {
+func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg vm.Config) (types.Receipts, []*types.Log, uint64, []ethvm.TxBlock, *big.Int, error) {
 	var (
 		receipts types.Receipts
 		usedGas  = new(uint64)
@@ -71,7 +71,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		allLogs  []*types.Log
 		gp       = new(GasPool).AddGas(block.GasLimit())
 		txFees   = big.NewInt(0)
-		txBlocks []rdb.TxBlock
+		txBlocks []ethvm.TxBlock
 	)
 	// Mutate the the block and state according to any hard-fork specs
 	if p.config.DAOForkSupport && p.config.DAOForkBlock != nil && p.config.DAOForkBlock.Cmp(block.Number()) == 0 {
@@ -85,7 +85,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		if err != nil {
 			return nil, nil, 0, nil, nil, err
 		}
-		txBlocks = append(txBlocks, rdb.TxBlock{
+		txBlocks = append(txBlocks, ethvm.TxBlock{
 			Tx:        tx,
 			Trace:     tResult,
 			Pending:   false,
@@ -142,6 +142,11 @@ func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *commo
 	return receipt, gas, err
 }
 
+// TraceApplyTransaction attempts to apply a transaction to the given state database
+// and uses the input parameters for its environment. It returns the receipt
+// for the transaction, gas used and an error if the transaction failed,
+// indicating the block was invalid.
+// Also adds a JavaScriptTracer that scans for metadata inside the executed txs
 func TraceApplyTransaction(config *params.ChainConfig, bc *BlockChain, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, cfg vm.Config) (*types.Receipt, uint64, interface{}, error) {
 	msg, err := tx.AsMessage(types.MakeSigner(config, header.Number))
 	if err != nil {
@@ -150,7 +155,7 @@ func TraceApplyTransaction(config *params.ChainConfig, bc *BlockChain, author *c
 	// Create a new context to be used in the EVM environment
 	context := NewEVMContext(msg, header, bc, author)
 	// Create a new JS tracer
-	tracer, _ := vm.NewJavascriptTracer(rdb.TraceStr)
+	tracer, _ := vm.NewJavascriptTracer(ethvm.TraceStr)
 	// Create a new environment which holds all relevant information
 	// about the transaction and calling mechanisms.
 	vmenv := vm.NewEVM(context, statedb, config, vm.Config{Debug: true, Tracer: tracer})

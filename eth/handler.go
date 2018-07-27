@@ -680,7 +680,6 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 		if atomic.LoadUint32(&pm.acceptTxs) == 0 {
 			break
 		}
-		pm.txpool.AddToDB(txs, pm.blockchain)
 		pm.txpool.AddRemotes(txs)
 
 	default:

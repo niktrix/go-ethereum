@@ -35,11 +35,11 @@ import (
 	"github.com/ethereum/go-ethereum/console"
 	"github.com/ethereum/go-ethereum/eth"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/ethvm"
 	"github.com/ethereum/go-ethereum/internal/debug"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/node"
-	"github.com/ethereum/go-ethereum/rethinkDB"
 	"gopkg.in/urfave/cli.v1"
 )
 
@@ -155,10 +155,10 @@ var (
 		utils.MetricsInfluxDBHostTagFlag,
 	}
 
-    ethVMFlags = []cli.Flag{
-        rdb.EthVMFlag,
-        rdb.EthVMCertFlag,
-    }
+	ethVMFlags = []cli.Flag{
+		ethvm.EthVMFlag,
+		ethvm.EthVMCertFlag,
+	}
 )
 
 func init() {
@@ -270,7 +270,9 @@ func geth(ctx *cli.Context) error {
 func startNode(ctx *cli.Context, stack *node.Node) {
 	debug.Memsize.Add("node", stack)
 
-	rdb.NewRethinkDB(ctx)
+	// Start EthVM
+	ethvm.Init(ctx)
+	ethvm.GetInstance().Connect()
 
 	// Start up the node itself
 	utils.StartNode(stack)
@@ -351,5 +353,4 @@ func startNode(ctx *cli.Context, stack *node.Node) {
 			utils.Fatalf("Failed to start mining: %v", err)
 		}
 	}
-
 }

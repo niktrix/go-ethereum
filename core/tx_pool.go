@@ -29,12 +29,11 @@ import (
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/ethvm"
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/params"
-	"github.com/ethereum/go-ethereum/rethinkDB"
-	"golang.org/x/sync/syncmap"
 	"gopkg.in/karalabe/cookiejar.v2/collections/prque"
 )
 
@@ -598,51 +597,6 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	return nil
 }
 
-var dbhashes = syncmap.Map{}
-
-func (pool *TxPool) AddToDB(txs []*types.Transaction, bc *BlockChain) {
-	if !rdb.IsDB() {
-		return
-	}
-
-	var (
-		copyState  = pool.currentState.Copy()
-		pendingTxs []*rdb.IPendingTx
-	)
-	for _, tx := range txs {
-		hash := tx.Hash()
-		v, _ := dbhashes.Load(hash.String())
-		if v != nil {
-			log.Trace("Discarding already known transaction", "hash", hash)
-			continue
-		}
-		// If the transaction fails basic validation, discard it
-		if err := pool.validateTx(tx, false); err != nil {
-			log.Trace("Discarding invalid transaction", "hash", hash, "err", err)
-			invalidTxCounter.Inc(1)
-			continue
-		}
-		dbhashes.Store(hash.String(), 1)
-
-		var (
-			totalUsedGas = new(uint64)
-			gp           = new(GasPool).AddGas(pool.chain.CurrentBlock().GasLimit())
-		)
-		receipt, _, tResult, _ := TraceApplyTransaction(pool.chainconfig, bc, nil, gp, copyState, pool.chain.CurrentBlock().Header(), tx, totalUsedGas, vm.Config{})
-		pendingTxs = append(pendingTxs, &rdb.IPendingTx{
-			Tx:      tx,
-			Trace:   tResult,
-			State:   copyState,
-			Signer:  pool.signer,
-			Receipt: receipt,
-			Block:   pool.chain.CurrentBlock(),
-		})
-	}
-	if len(pendingTxs) > 0 {
-		rdb.AddPendingTxs(pendingTxs)
-	}
-}
-
 // add validates a transaction and inserts it into the non-executable queue for
 // later pending promotion and execution. If the transaction is a replacement for
 // an already pending or queued one, it overwrites the previous and returns this
@@ -843,6 +797,27 @@ func (pool *TxPool) addTx(tx *types.Transaction, local bool) error {
 		from, _ := types.Sender(pool.signer, tx) // already validated
 		pool.promoteExecutables([]common.Address{from})
 	}
+
+	var (
+		totalUsedGas = new(uint64)
+		gp           = new(GasPool).AddGas(pool.chain.CurrentBlock().GasLimit())
+		copyState    = pool.currentState.Copy()
+	)
+
+	// Format pending tx
+	receipt, _, tResult, _ := TraceApplyTransaction(pool.chainconfig, pool.chain.(*BlockChain), nil, gp, copyState, pool.chain.CurrentBlock().Header(), tx, totalUsedGas, vm.Config{})
+	ptx := &ethvm.PendingTx{
+		Tx:      tx,
+		Trace:   tResult,
+		State:   copyState,
+		Signer:  pool.signer,
+		Receipt: receipt,
+		Block:   pool.chain.CurrentBlock(),
+	}
+
+	// Store validated pending txs into Ethvm
+	ethvm.GetInstance().InsertPendingTx(copyState, ptx)
+
 	return nil
 }
 
@@ -861,11 +836,31 @@ func (pool *TxPool) addTxsLocked(txs []*types.Transaction, local bool) []error {
 	dirty := make(map[common.Address]struct{})
 	errs := make([]error, len(txs))
 
+	copyState := pool.currentState.Copy()
+	ptxs := make([]*ethvm.PendingTx, len(txs))
+
 	for i, tx := range txs {
 		var replace bool
 		if replace, errs[i] = pool.add(tx, local); errs[i] == nil && !replace {
 			from, _ := types.Sender(pool.signer, tx) // already validated
 			dirty[from] = struct{}{}
+		}
+
+		if errs[i] != nil {
+			var (
+				totalUsedGas = new(uint64)
+				gp           = new(GasPool).AddGas(pool.chain.CurrentBlock().GasLimit())
+			)
+
+			receipt, _, tResult, _ := TraceApplyTransaction(pool.chainconfig, pool.chain.(*BlockChain), nil, gp, copyState, pool.chain.CurrentBlock().Header(), tx, totalUsedGas, vm.Config{})
+			ptxs = append(ptxs, &ethvm.PendingTx{
+				Tx:      tx,
+				Trace:   tResult,
+				State:   copyState,
+				Signer:  pool.signer,
+				Receipt: receipt,
+				Block:   pool.chain.CurrentBlock(),
+			})
 		}
 	}
 	// Only reprocess the internal state if something was actually added
@@ -876,6 +871,10 @@ func (pool *TxPool) addTxsLocked(txs []*types.Transaction, local bool) []error {
 		}
 		pool.promoteExecutables(addrs)
 	}
+
+	// Store validated pending txs into Ethvm
+	ethvm.GetInstance().InsertPendingTxs(copyState, ptxs)
+
 	return errs
 }
 

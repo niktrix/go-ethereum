@@ -614,6 +614,7 @@ func (e *EthVM) InsertBlock(blockIn *BlockIn) {
 		}
 
 		updateNonceHashes := func() {
+			defer wg.Done()
 			for _, tx := range tTxs {
 				tx, ok := tx.(map[string]interface{})
 				if !ok {

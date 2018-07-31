@@ -55,7 +55,7 @@ var (
 		Usage: "Select which name will be asigned to the RethinkDB db table",
 	}
 
-	// EthVM DB Metadata
+	// DbTables DB Metadata
 	DbTables = map[string]string{
 		"blocks":         "blocks",
 		"blocks_metrics": "blocks_metrics",
@@ -64,6 +64,8 @@ var (
 		"logs":           "logs",
 		"data":           "data",
 	}
+
+	// TraceStr Javascript definition for the tracer that analyzes transactions
 	TraceStr = "{transfers:[],isError:false,msg:'',result:function(){var _this=this;return{transfers:_this.transfers,isError:_this.isError,msg:_this.msg}},step:function(log,db){var _this=this;if(log.err){_this.isError=true;_this.msg=log.err.Error();return}var op=log.op;var stack=log.stack;var memory=log.memory;var transfer={};var from=log.account;if(op.toString()=='CALL'){transfer={op:'CALL',value:stack.peek(2).Bytes(),from:from,fromBalance:db.getBalance(from).Bytes(),to:big.BigToAddress(stack.peek(1)),toBalance:db.getBalance(big.BigToAddress(stack.peek(1))).Bytes(),input:memory.slice(big.ToInt(stack.peek(3)),big.ToInt(stack.peek(3))+big.ToInt(stack.peek(4)))};_this.transfers.push(transfer)}else if(op.toString()=='SELFDESTRUCT'){transfer={op:'SELFDESTRUCT',value:db.getBalance(from).Bytes(),from:from,fromBalance:db.getBalance(from).Bytes(),to:big.BigToAddress(stack.peek(0)),toBalance:db.getBalance(big.BigToAddress(stack.peek(0))).Bytes()};_this.transfers.push(transfer)}else if(op.toString()=='CREATE'){transfer={op:'CREATE',value:stack.peek(0).Bytes(),from:from,fromBalance:db.getBalance(from).Bytes(),to:big.CreateContractAddress(from,db.getNonce(from)),toBalance:db.getBalance(big.CreateContractAddress(from,db.getNonce(from))).Bytes()input:memory.slice(big.ToInt(stack.peek(1)),big.ToInt(stack.peek(1))+big.ToInt(stack.peek(2)))};_this.transfers.push(transfer)}}}"
 
 	// Block rewards
@@ -102,6 +104,7 @@ type BlockIn struct {
 	UncleReward     *big.Int
 }
 
+// NewBlockIn Creates and formats a new BlockIn instance
 func NewBlockIn(block *types.Block, txBlocks *[]TxBlock, state *state.StateDB, td *big.Int, receipts []*types.Receipt, signer types.Signer, txFees *big.Int, blockReward *big.Int) *BlockIn {
 	return &BlockIn{
 		Block:    block,
@@ -247,6 +250,7 @@ type PendingTx struct {
 // Main EthVM struct
 // -----------------
 
+// EthVM Struct that holds metadata related to EthVM
 type EthVM struct {
 	enabled bool
 
@@ -255,6 +259,7 @@ type EthVM struct {
 	dbName  string
 }
 
+// Init Saves cli.Context to be used inside EthVM
 func Init(c *cli.Context) {
 	ctx = c
 }
@@ -813,9 +818,8 @@ func formatTx(blockIn *BlockIn, txBlock TxBlock, index int) (interface{}, map[st
 		"to": func() []byte {
 			if tx.To() == nil {
 				return common.BytesToAddress(make([]byte, 1)).Bytes()
-			} else {
-				return tx.To().Bytes()
 			}
+			return tx.To().Bytes()
 		}(),
 		"toBalance":         toBalance.Bytes(),
 		"gasUsed":           big.NewInt(int64(receipt.GasUsed)).Bytes(),

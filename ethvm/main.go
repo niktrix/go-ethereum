@@ -839,6 +839,7 @@ func formatTx(blockIn *BlockIn, txBlock TxBlock, index int) (interface{}, map[st
 		"s":                 (_s).Bytes(),
 		"status":            receipt.Status,
 		"pending":           txBlock.Pending,
+		"data":              tx.Data(),
 		"timestamp":         txBlock.Timestamp.Bytes(),
 	}
 

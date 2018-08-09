@@ -805,7 +805,12 @@ func (pool *TxPool) addTx(tx *types.Transaction, local bool) error {
 	)
 
 	// Format pending tx
-	receipt, _, tResult, _ := TraceApplyTransaction(pool.chainconfig, pool.chain.(*BlockChain), nil, gp, copyState, pool.chain.CurrentBlock().Header(), tx, totalUsedGas, vm.Config{})
+	receipt, _, tResult, traceerr := TraceApplyTransaction(pool.chainconfig, pool.chain.(*BlockChain), nil, gp, copyState, pool.chain.CurrentBlock().Header(), tx, totalUsedGas, vm.Config{})
+	if traceerr != nil {
+		log.Error("InsertPendingTx", "error", traceerr)
+		return nil
+
+	}
 	ptx := &ethvm.PendingTx{
 		Tx:      tx,
 		Trace:   tResult,
@@ -816,6 +821,8 @@ func (pool *TxPool) addTx(tx *types.Transaction, local bool) error {
 	}
 
 	// Store validated pending txs into Ethvm
+	log.Error("InsertPendingTx", "InsertPendingTx", ptx)
+
 	ethvm.GetInstance().InsertPendingTx(copyState, ptx)
 
 	return nil
@@ -823,6 +830,8 @@ func (pool *TxPool) addTx(tx *types.Transaction, local bool) error {
 
 // addTxs attempts to queue a batch of transactions if they are valid.
 func (pool *TxPool) addTxs(txs []*types.Transaction, local bool) []error {
+	log.Error("addTxs", "addTxs", txs)
+
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
@@ -945,6 +954,9 @@ func (pool *TxPool) removeTx(hash common.Hash, outofbound bool) {
 			delete(pool.queue, addr)
 		}
 	}
+
+	ethvm.GetInstance().DeleteTransaction(tx)
+
 }
 
 // promoteExecutables moves transactions that have become processable from the

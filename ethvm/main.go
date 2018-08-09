@@ -387,11 +387,11 @@ func (e *EthVM) Connect() {
 	r.DB(e.dbName).Table(DbTables["transactions"]).IndexCreate("from").RunWrite(e.session)
 	r.DB(e.dbName).Table(DbTables["transactions"]).IndexCreateFunc("numberAndHash",
 		[]interface{}{
-			r.Row.Field("blockIntNumber"),
+			r.Row.Field("number"),
 			r.Row.Field("hash"),
 		}).RunWrite(e.session)
 
-	r.DB(e.dbName).Table(DbTables["blocks"]).IndexCreate("intNumber").RunWrite(e.session)
+	r.DB(e.dbName).Table(DbTables["blocks"]).IndexCreate("number").RunWrite(e.session)
 	r.DB(e.dbName).Table(DbTables["blocks_metrics"]).IndexCreate("timestamp").RunWrite(e.session)
 
 	r.DB(e.dbName).Table(DbTables["traces"]).IndexCreateFunc("trace_from", r.Row.Field("trace").Field("transfers").Field("from"), r.IndexCreateOpts{Multi: true}).RunWrite(e.session)
@@ -504,8 +504,7 @@ func (e *EthVM) InsertBlock(blockIn *BlockIn) {
 		}()
 
 		bfields := map[string]interface{}{
-			"number":       head.Number.Bytes(),
-			"intNumber":    hexutil.Uint64(head.Number.Uint64()),
+			"number": hexutil.Uint64(head.Number.Uint64()),
 			"hash":         head.Hash().Bytes(),
 			"parentHash":   head.ParentHash.Bytes(),
 			"nonce":        head.Nonce,
@@ -556,12 +555,10 @@ func (e *EthVM) InsertBlock(blockIn *BlockIn) {
 	block, _ := formatBlock(blockIn.Block, tHashes)
 	blockMetadata, _ := formatBlockMetric(blockIn, blockIn.Block, bm)
 
-	if block["intNumber"] != 0 {
+	if block["number"] != 0 {
 		tTrace = append(tTrace, map[string]interface{}{
-			"hash":           block["hash"],
-			"blockHash":      block["hash"],
-			"blockNumber":    block["number"],
-			"blockIntNumber": block["intNumber"],
+			"blockHash":   block["hash"],
+			"blockNumber": block["number"],
 			"trace": map[string]interface{}{
 				"isError": false,
 				"msg":     "",
@@ -590,8 +587,8 @@ func (e *EthVM) InsertBlock(blockIn *BlockIn) {
 				return
 			}
 
-			debug, _ := json.Marshal(values)
-			log.Info("saveToDB", "table", table, "values", debug)
+			//debug, _ := json.Marshal(values)
+			log.Info("saveToDB", "table", table, "values", values)
 
 			var err error
 			if table == DbTables["transactions"] && len(values.([]interface{})) > 0 {
@@ -807,11 +804,11 @@ func formatTx(blockIn *BlockIn, txBlock TxBlock, index int) (interface{}, map[st
 	}
 
 	rfields := map[string]interface{}{
-		"cofrom":           nil,
-		"root":             blockIn.Block.Header().ReceiptHash.Bytes(),
-		"blockHash":        blockIn.Block.Hash().Bytes(),
-		"blockNumber":      head.Number.Bytes(),
-		"blockIntNumber":   hexutil.Uint64(head.Number.Uint64()),
+		"cofrom":      nil,
+		"root":        blockIn.Block.Header().ReceiptHash.Bytes(),
+		"blockHash":   blockIn.Block.Hash().Bytes(),
+		"blockNumber": hexutil.Uint64(head.Number.Uint64()),
+		//"blockIntNumber":   hexutil.Uint64(head.Number.Uint64()),
 		"transactionIndex": big.NewInt(int64(index)).Bytes(),
 		"from":             from.Bytes(),
 		"fromBalance":      fromBalance.Bytes(),
@@ -844,11 +841,11 @@ func formatTx(blockIn *BlockIn, txBlock TxBlock, index int) (interface{}, map[st
 	}
 
 	rlogs := map[string]interface{}{
-		"hash":           tx.Hash().Bytes(),
-		"blockHash":      blockIn.Block.Hash().Bytes(),
-		"blockNumber":    head.Number.Bytes(),
-		"blockIntNumber": hexutil.Uint64(head.Number.Uint64()),
-		"logs":           formatLogs(receipt.Logs),
+		"hash":        tx.Hash().Bytes(),
+		"blockHash":   blockIn.Block.Hash().Bytes(),
+		"blockNumber": hexutil.Uint64(head.Number.Uint64()),
+		//"blockIntNumber": hexutil.Uint64(head.Number.Uint64()),
+		"logs": formatLogs(receipt.Logs),
 	}
 
 	getTxTransfer := func() []map[string]interface{} {
@@ -864,10 +861,10 @@ func formatTx(blockIn *BlockIn, txBlock TxBlock, index int) (interface{}, map[st
 	}
 
 	rTrace := map[string]interface{}{
-		"hash":           tx.Hash().Bytes(),
-		"blockHash":      blockIn.Block.Hash().Bytes(),
-		"blockNumber":    head.Number.Bytes(),
-		"blockIntNumber": hexutil.Uint64(head.Number.Uint64()),
+		"hash":        tx.Hash().Bytes(),
+		"blockHash":   blockIn.Block.Hash().Bytes(),
+		"blockNumber": hexutil.Uint64(head.Number.Uint64()),
+		//"blockIntNumber": hexutil.Uint64(head.Number.Uint64()),
 		"trace": func() interface{} {
 			temp, ok := txBlock.Trace.(map[string]interface{})
 			if !ok {
@@ -907,6 +904,13 @@ func formatTx(blockIn *BlockIn, txBlock TxBlock, index int) (interface{}, map[st
 	rfields["cofrom"] = arr
 
 	return rfields, rlogs, rTrace
+}
+
+func (e *EthVM) DeleteTransaction(tx *types.Transaction) {
+	_, err := r.DB(e.dbName).Table(DbTables["transactions"]).filter({"hash": tx.Hash().Bytes()}).Delete().RunWrite(e.session)
+	if err != nil {
+		panic(err)
+	}
 }
 
 func formatBlockMetric(blockIn *BlockIn, block *types.Block, bm BlockMetrics) (map[string]interface{}, error) {

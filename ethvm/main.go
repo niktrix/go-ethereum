@@ -19,7 +19,6 @@ package ethvm
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/json"
 	"math/big"
 	"net/url"
 	"os"
@@ -154,7 +153,7 @@ func newTxMetric(blockIn *BlockIn, txBlock TxBlock, index int) TXMetric {
 
 	// if no receipt, then there is no transaction
 	if receipt == nil {
-		log.Debug("Receipt not found for transaction", "hash", tx.Hash())
+		log.Debug("newTxMetric - Receipt not found for transaction", "hash", tx.Hash())
 		return TXMetric{}
 	}
 
@@ -460,6 +459,7 @@ func (e *EthVM) InsertBlock(blockIn *BlockIn) {
 			tTrace  []interface{}
 		)
 		if txblocks == nil {
+			log.Info("InsertBlock - processTxs / Empty txblocks")
 			return tHashes, tTxs, tLogs, tTrace
 		}
 
@@ -474,6 +474,8 @@ func (e *EthVM) InsertBlock(blockIn *BlockIn) {
 			}
 			tHashes = append(tHashes, _txBlock.Tx.Hash().Bytes())
 		}
+
+		log.Info("InsertBlock - processTxs", "tHashes", len(tHashes), "tTxs", len(tTxs), "tLogs", len(tLogs), "tTrace", len(tTrace))
 		return tHashes, tTxs, tLogs, tTrace
 	}
 
@@ -590,11 +592,11 @@ func (e *EthVM) InsertBlock(blockIn *BlockIn) {
 				return
 			}
 
-			debug, _ := json.Marshal(values)
-			log.Info("saveToDB", "table", table, "values", debug)
+			log.Info("InsertBlock - saveToDB", "table", table)
 
 			var err error
 			if table == DbTables["transactions"] && len(values.([]interface{})) > 0 {
+				log.Info("InsertBlock - saveToDB", "table", table, "len", len(values.([]interface{})))
 				_, err = r.DB(e.dbName).Table(DbTables[table]).Insert(values, r.InsertOpts{
 					Conflict:      "replace",
 					ReturnChanges: "always",
@@ -644,9 +646,13 @@ func (e *EthVM) InsertBlock(blockIn *BlockIn) {
 			}
 		}
 
-		// Write first nonce hashes, transactions, logs and traces
-		wg.Add(4)
+		// Write first nonce hashes
+		wg.Add(1)
 		go updateNonceHashes()
+		wg.Wait()
+
+		// Write after transactions, logs and traces
+		wg.Add(3)
 		go saveToDB(DbTables["transactions"], tTxs)
 		go saveToDB(DbTables["logs"], tLogs)
 		go saveToDB(DbTables["traces"], tTrace)
@@ -728,11 +734,10 @@ func (e *EthVM) InsertPendingTxs(stateDb *state.StateDB, txs []*PendingTx) {
 			return
 		}
 
-		debug, _ := json.Marshal(values)
-		log.Info("saveToDB2", "table", table, "values", debug)
+		log.Info("InsertPendingTxs - saveToDB", "table", table)
 
 		result, err := r.DB(e.dbName).Table(DbTables[table]).Insert(values, r.InsertOpts{Conflict: func(id r.Term, oldDoc r.Term, newDoc r.Term) interface{} {
-			return oldDoc
+			return newDoc
 		}}).RunWrite(e.session)
 		if err != nil {
 			panic(err)
@@ -757,6 +762,25 @@ func (e *EthVM) InsertPendingTxs(stateDb *state.StateDB, txs []*PendingTx) {
 	}(pTxsCh)
 }
 
+// RemovePendingTx Removes a pending transaction from the DB
+func (e *EthVM) RemovePendingTx(hash common.Hash) {
+	if !e.isEnabled() {
+		return
+	}
+
+	log.Debug("RemovePendingTx - Removing pending tx", "hash", hash)
+
+	deleteFromDb := func(table string, hash common.Hash) {
+		f := map[string]interface{}{"hash": hash.Bytes()}
+		_, err := r.DB(e.dbName).Table(DbTables[table]).Filter(f).Delete().Run(e.session)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	go deleteFromDb(DbTables["transactions"], hash)
+}
+
 // ----------------
 // Helper functions
 // ----------------
@@ -765,7 +789,7 @@ func formatTx(blockIn *BlockIn, txBlock TxBlock, index int) (interface{}, map[st
 	tx := txBlock.Tx
 	receipt := blockIn.Receipts[index]
 	if receipt == nil {
-		log.Debug("Receipt not found for transaction", "hash", tx.Hash())
+		log.Debug("formatTx - Receipt not found for transaction", "hash", tx.Hash())
 		return nil, nil, nil
 	}
 
@@ -910,8 +934,6 @@ func formatTx(blockIn *BlockIn, txBlock TxBlock, index int) (interface{}, map[st
 }
 
 func formatBlockMetric(blockIn *BlockIn, block *types.Block, bm BlockMetrics) (map[string]interface{}, error) {
-	log.Info("BlockMetric", "avgGasPrice", bm.avgGasPrice)
-
 	head := block.Header() // copies the header once
 	minerBalance := blockIn.State.GetBalance(head.Coinbase)
 	txfees, blockReward, uncleReward := func() (*big.Int, *big.Int, *big.Int) {
@@ -936,30 +958,33 @@ func formatBlockMetric(blockIn *BlockIn, block *types.Block, bm BlockMetrics) (m
 	}()
 
 	bfields := map[string]interface{}{
-		"number":        head.Number,
-		"intNumber":     hexutil.Uint64(head.Number.Uint64()),
-		"hash":          head.Hash().Bytes(),
-		"timestamp":     time.Unix(head.Time.Int64(), 0),
+		"hash":      head.Hash().Bytes(),
+		"number":    head.Number,
+		"intNumber": hexutil.Uint64(head.Number.Uint64()),
+		"timestamp": time.Unix(head.Time.Int64(), 0),
+
+		"totalTxs":      bm.totalTransaction,
 		"pendingTxs":    bm.pendingTransaction,
 		"successfulTxs": bm.successfulTxs,
 		"failedTxs":     bm.failedTxs,
-		"totalTxs":      bm.totalTransaction,
-		"avgGasPrice":   bm.avgGasPrice.Uint64(),
 
-		"size":     int64(hexutil.Uint64(block.Size())),
-		"accounts": bm.accounts,
-		"gasLimit": int64(head.GasLimit),
-		"gasUsed":  int64(head.GasUsed),
+		"avgGasPrice": bm.avgGasPrice.Uint64(),
 
-		"newaccounts": bm.newAccounts,
-		"miner":       head.Coinbase.Bytes(),
+		"accounts":    bm.accounts,
+		"newAccounts": bm.newAccounts,
+
 		"isUncle":     blockIn.IsUncle,
 		"blockReward": blockReward.Uint64(),
 		"uncleReward": uncleReward.Uint64(),
 
+		"miner":        head.Coinbase.Bytes(),
 		"minerBalance": minerBalance,
-		"difficulty":   head.Difficulty,
-		"txFees":       txfees.Uint64(),
+
+		"difficulty": head.Difficulty,
+		"txFees":     txfees.Uint64(),
+		"gasLimit":   int64(head.GasLimit),
+		"gasUsed":    int64(head.GasUsed),
+		"size":       int64(hexutil.Uint64(block.Size())),
 	}
 
 	return bfields, nil

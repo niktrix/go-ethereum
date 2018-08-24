@@ -507,7 +507,7 @@ func (e *EthVM) InsertBlock(blockIn *BlockIn) {
 
 		bfields := map[string]interface{}{
 			"number":       hexutil.Uint64(head.Number.Uint64()),
-			"hash":         head.Hash().Bytes(),
+			"hash":         head.Hash().Hex(),
 			"parentHash":   head.ParentHash.Bytes(),
 			"nonce":        head.Nonce,
 			"mixHash":      head.MixDigest.Bytes(),
@@ -849,7 +849,7 @@ func formatTx(blockIn *BlockIn, txBlock TxBlock, index int) (interface{}, map[st
 		"logsBloom":         receipt.Bloom.Bytes(),
 		"gas":               big.NewInt(int64(tx.Gas())).Bytes(),
 		"gasPrice":          tx.GasPrice().Bytes(),
-		"hash":              tx.Hash().Bytes(),
+		"hash":              tx.Hash().Hex(),
 		"nonceHash":         crypto.Keccak256Hash(from.Bytes(), big.NewInt(int64(tx.Nonce())).Bytes()).Bytes(),
 		"replacedBy":        make([]byte, 0),
 		"input":             tx.Data(),

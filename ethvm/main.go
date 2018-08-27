@@ -386,11 +386,11 @@ func (e *EthVM) Connect() {
 	r.DB(e.dbName).Table(DbTables["transactions"]).IndexCreate("from").RunWrite(e.session)
 	r.DB(e.dbName).Table(DbTables["transactions"]).IndexCreateFunc("numberAndHash",
 		[]interface{}{
-			r.Row.Field("blockIntNumber"),
+			r.Row.Field("number"),
 			r.Row.Field("hash"),
 		}).RunWrite(e.session)
 
-	r.DB(e.dbName).Table(DbTables["blocks"]).IndexCreate("intNumber").RunWrite(e.session)
+	r.DB(e.dbName).Table(DbTables["blocks"]).IndexCreate("number").RunWrite(e.session)
 	r.DB(e.dbName).Table(DbTables["blocks_metrics"]).IndexCreate("timestamp").RunWrite(e.session)
 
 	r.DB(e.dbName).Table(DbTables["traces"]).IndexCreateFunc("trace_from", r.Row.Field("trace").Field("transfers").Field("from"), r.IndexCreateOpts{Multi: true}).RunWrite(e.session)
@@ -406,8 +406,8 @@ func (e *EthVM) InsertGenesisTrace(gAlloc map[common.Address][]byte, block *type
 	// Format
 	rTrace := map[string]interface{}{
 		"hash":           common.BytesToHash([]byte("GENESIS_TX")).Bytes(),
-		"blockHash":      block.Hash().Bytes(),
-		"blockNumber":    block.Header().Number.Bytes(),
+		"blockHash":      block.Hash(),
+		"blockNumber":    hexutil.Uint64(block.Header().Number.Uint64()),
 		"blockIntNumber": hexutil.Uint64(block.Header().Number.Uint64()),
 		"trace": map[string]interface{}{
 			"isError": false,
@@ -506,9 +506,8 @@ func (e *EthVM) InsertBlock(blockIn *BlockIn) {
 		}()
 
 		bfields := map[string]interface{}{
-			"number":       head.Number.Bytes(),
-			"intNumber":    hexutil.Uint64(head.Number.Uint64()),
-			"hash":         head.Hash().Bytes(),
+			"number":       hexutil.Uint64(head.Number.Uint64()),
+			"hash":         head.Hash().Hex(),
 			"parentHash":   head.ParentHash.Bytes(),
 			"nonce":        head.Nonce,
 			"mixHash":      head.MixDigest.Bytes(),
@@ -558,12 +557,11 @@ func (e *EthVM) InsertBlock(blockIn *BlockIn) {
 	block, _ := formatBlock(blockIn.Block, tHashes)
 	blockMetadata, _ := formatBlockMetric(blockIn, blockIn.Block, bm)
 
-	if block["intNumber"] != 0 {
+	if block["number"] != 0 {
 		tTrace = append(tTrace, map[string]interface{}{
-			"hash":           block["hash"],
-			"blockHash":      block["hash"],
-			"blockNumber":    block["number"],
-			"blockIntNumber": block["intNumber"],
+			"hash":        block["hash"],
+			"blockHash":   block["hash"],
+			"blockNumber": block["number"],
 			"trace": map[string]interface{}{
 				"isError": false,
 				"msg":     "",
@@ -833,9 +831,8 @@ func formatTx(blockIn *BlockIn, txBlock TxBlock, index int) (interface{}, map[st
 	rfields := map[string]interface{}{
 		"cofrom":           nil,
 		"root":             blockIn.Block.Header().ReceiptHash.Bytes(),
-		"blockHash":        blockIn.Block.Hash().Bytes(),
-		"blockNumber":      head.Number.Bytes(),
-		"blockIntNumber":   hexutil.Uint64(head.Number.Uint64()),
+		"blockHash":        blockIn.Block.Hash(),
+		"blockNumber":      head.Number.Uint64(),
 		"transactionIndex": big.NewInt(int64(index)).Bytes(),
 		"from":             from.Bytes(),
 		"fromBalance":      fromBalance.Bytes(),
@@ -852,7 +849,7 @@ func formatTx(blockIn *BlockIn, txBlock TxBlock, index int) (interface{}, map[st
 		"logsBloom":         receipt.Bloom.Bytes(),
 		"gas":               big.NewInt(int64(tx.Gas())).Bytes(),
 		"gasPrice":          tx.GasPrice().Bytes(),
-		"hash":              tx.Hash().Bytes(),
+		"hash":              tx.Hash().Hex(),
 		"nonceHash":         crypto.Keccak256Hash(from.Bytes(), big.NewInt(int64(tx.Nonce())).Bytes()).Bytes(),
 		"replacedBy":        make([]byte, 0),
 		"input":             tx.Data(),
@@ -868,11 +865,10 @@ func formatTx(blockIn *BlockIn, txBlock TxBlock, index int) (interface{}, map[st
 	}
 
 	rlogs := map[string]interface{}{
-		"hash":           tx.Hash().Bytes(),
-		"blockHash":      blockIn.Block.Hash().Bytes(),
-		"blockNumber":    head.Number.Bytes(),
-		"blockIntNumber": hexutil.Uint64(head.Number.Uint64()),
-		"logs":           formatLogs(receipt.Logs),
+		"hash":        tx.Hash().Bytes(),
+		"blockHash":   blockIn.Block.Hash(),
+		"blockNumber": head.Number.Uint64(),
+		"logs":        formatLogs(receipt.Logs),
 	}
 
 	getTxTransfer := func() []map[string]interface{} {
@@ -888,10 +884,9 @@ func formatTx(blockIn *BlockIn, txBlock TxBlock, index int) (interface{}, map[st
 	}
 
 	rTrace := map[string]interface{}{
-		"hash":           tx.Hash().Bytes(),
-		"blockHash":      blockIn.Block.Hash().Bytes(),
-		"blockNumber":    head.Number.Bytes(),
-		"blockIntNumber": hexutil.Uint64(head.Number.Uint64()),
+		"hash":        tx.Hash().Bytes(),
+		"blockHash":   blockIn.Block.Hash(),
+		"blockNumber": hexutil.Uint64(head.Number.Uint64()),
 		"trace": func() interface{} {
 			temp, ok := txBlock.Trace.(map[string]interface{})
 			if !ok {
@@ -958,33 +953,26 @@ func formatBlockMetric(blockIn *BlockIn, block *types.Block, bm BlockMetrics) (m
 	}()
 
 	bfields := map[string]interface{}{
-		"hash":      head.Hash().Bytes(),
-		"number":    head.Number,
-		"intNumber": hexutil.Uint64(head.Number.Uint64()),
-		"timestamp": time.Unix(head.Time.Int64(), 0),
-
+		"hash":          head.Hash(),
+		"number":        hexutil.Uint64(head.Number.Uint64()),
+		"timestamp":     time.Unix(head.Time.Int64(), 0),
 		"totalTxs":      bm.totalTransaction,
 		"pendingTxs":    bm.pendingTransaction,
 		"successfulTxs": bm.successfulTxs,
 		"failedTxs":     bm.failedTxs,
-
-		"avgGasPrice": bm.avgGasPrice.Uint64(),
-
-		"accounts":    bm.accounts,
-		"newAccounts": bm.newAccounts,
-
-		"isUncle":     blockIn.IsUncle,
-		"blockReward": blockReward.Uint64(),
-		"uncleReward": uncleReward.Uint64(),
-
-		"miner":        head.Coinbase.Bytes(),
-		"minerBalance": minerBalance,
-
-		"difficulty": head.Difficulty,
-		"txFees":     txfees.Uint64(),
-		"gasLimit":   int64(head.GasLimit),
-		"gasUsed":    int64(head.GasUsed),
-		"size":       int64(hexutil.Uint64(block.Size())),
+		"avgGasPrice":   bm.avgGasPrice.Uint64(),
+		"accounts":      bm.accounts,
+		"newAccounts":   bm.newAccounts,
+		"isUncle":       blockIn.IsUncle,
+		"blockReward":   blockReward.Uint64(),
+		"uncleReward":   uncleReward.Uint64(),
+		"miner":         head.Coinbase.Bytes(),
+		"minerBalance":  minerBalance,
+		"difficulty":    head.Difficulty,
+		"txFees":        txfees.Uint64(),
+		"gasLimit":      int64(head.GasLimit),
+		"gasUsed":       int64(head.GasUsed),
+		"size":          int64(hexutil.Uint64(block.Size())),
 	}
 
 	return bfields, nil

@@ -451,9 +451,9 @@ func (e *EthVM) InsertBlock(blockIn *BlockIn) {
 		return
 	}
 
-	processTxs := func(txblocks *[]TxBlock) ([][]byte, []interface{}, []interface{}, []interface{}) {
+	processTxs := func(txblocks *[]TxBlock) ([]string, []interface{}, []interface{}, []interface{}) {
 		var (
-			tHashes [][]byte
+			tHashes []string
 			tTxs    []interface{}
 			tLogs   []interface{}
 			tTrace  []interface{}
@@ -472,14 +472,14 @@ func (e *EthVM) InsertBlock(blockIn *BlockIn) {
 			if _tTrace["trace"] != nil {
 				tTrace = append(tTrace, _tTrace)
 			}
-			tHashes = append(tHashes, _txBlock.Tx.Hash().Bytes())
+			tHashes = append(tHashes, _txBlock.Tx.Hash().Hex())
 		}
 
 		log.Info("InsertBlock - processTxs", "tHashes", len(tHashes), "tTxs", len(tTxs), "tLogs", len(tLogs), "tTrace", len(tTrace))
 		return tHashes, tTxs, tLogs, tTrace
 	}
 
-	formatBlock := func(block *types.Block, tHashes [][]byte) (map[string]interface{}, error) {
+	formatBlock := func(block *types.Block, tHashes []string) (map[string]interface{}, error) {
 		head := block.Header() // copies the header once
 		minerBalance := blockIn.State.GetBalance(head.Coinbase)
 

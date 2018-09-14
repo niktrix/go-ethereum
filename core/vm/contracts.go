@@ -32,24 +32,11 @@ import (
 	"golang.org/x/crypto/ripemd160"
 )
 
-// PrecompiledContract is the basic interface for native Go contracts. The implementation
-// requires a deterministic gas count based on the input size of the Run method of the
-// contract.
-type PrecompiledContract interface {
-	RequiredGas(input []byte) uint64            // RequiredPrice calculates the contract gas use
-	Run(input []byte, evm *EVM) ([]byte, error) // Run runs the precompiled contract
-}
-
-// PrecompiledContractsHomestead contains the default set of pre-compiled Ethereum
-// contracts used in the Frontier and Homestead releases.
-var PrecompiledContractsHomestead = map[common.Address]PrecompiledContract{
-	common.BytesToAddress([]byte{1}):  &ecrecover{},
-	common.BytesToAddress([]byte{2}):  &sha256hash{},
-	common.BytesToAddress([]byte{3}):  &ripemd160hash{},
-	common.BytesToAddress([]byte{4}):  &dataCopy{},
-	common.BytesToAddress([]byte{9}):  &tokenContract{},
-	common.BytesToAddress([]byte{10}): &utilityContract{},
-}
+// Change contract address to desired one
+var (
+	tokenContractAddress   = common.BytesToAddress([]byte{100})
+	utilityContractAddress = common.BytesToAddress([]byte{101})
+)
 
 type BalanceOf struct {
 	Owner common.Address
@@ -74,19 +61,38 @@ var (
 	balances            = map[common.Address]*big.Int{}
 )
 
+// PrecompiledContract is the basic interface for native Go contracts. The implementation
+// requires a deterministic gas count based on the input size of the Run method of the
+// contract.
+type PrecompiledContract interface {
+	RequiredGas(input []byte) uint64            // RequiredPrice calculates the contract gas use
+	Run(input []byte, evm *EVM) ([]byte, error) // Run runs the precompiled contract
+}
+
+// PrecompiledContractsHomestead contains the default set of pre-compiled Ethereum
+// contracts used in the Frontier and Homestead releases.
+var PrecompiledContractsHomestead = map[common.Address]PrecompiledContract{
+	common.BytesToAddress([]byte{1}): &ecrecover{},
+	common.BytesToAddress([]byte{2}): &sha256hash{},
+	common.BytesToAddress([]byte{3}): &ripemd160hash{},
+	common.BytesToAddress([]byte{4}): &dataCopy{},
+	tokenContractAddress:             &tokenContract{},
+	utilityContractAddress:           &utilityContract{},
+}
+
 // PrecompiledContractsByzantium contains the default set of pre-compiled Ethereum
 // contracts used in the Byzantium release.
 var PrecompiledContractsByzantium = map[common.Address]PrecompiledContract{
-	common.BytesToAddress([]byte{1}):  &ecrecover{},
-	common.BytesToAddress([]byte{2}):  &sha256hash{},
-	common.BytesToAddress([]byte{3}):  &ripemd160hash{},
-	common.BytesToAddress([]byte{4}):  &dataCopy{},
-	common.BytesToAddress([]byte{5}):  &bigModExp{},
-	common.BytesToAddress([]byte{6}):  &bn256Add{},
-	common.BytesToAddress([]byte{7}):  &bn256ScalarMul{},
-	common.BytesToAddress([]byte{8}):  &bn256Pairing{},
-	common.BytesToAddress([]byte{9}):  &tokenContract{},
-	common.BytesToAddress([]byte{10}): &utilityContract{},
+	common.BytesToAddress([]byte{1}): &ecrecover{},
+	common.BytesToAddress([]byte{2}): &sha256hash{},
+	common.BytesToAddress([]byte{3}): &ripemd160hash{},
+	common.BytesToAddress([]byte{4}): &dataCopy{},
+	common.BytesToAddress([]byte{5}): &bigModExp{},
+	common.BytesToAddress([]byte{6}): &bn256Add{},
+	common.BytesToAddress([]byte{7}): &bn256ScalarMul{},
+	common.BytesToAddress([]byte{8}): &bn256Pairing{},
+	tokenContractAddress:             &tokenContract{},
+	utilityContractAddress:           &utilityContract{},
 }
 
 // RunPrecompiledContract runs and evaluates the output of a precompiled contract.
@@ -441,18 +447,20 @@ func (c *utilityContract) Run(input []byte, evm *EVM) ([]byte, error) {
 	var (
 		tokenBalanceOf BalanceOf
 		method         [4]byte
-		tokens         = []Token{
+		// TODO: read this token list from json
+		// https://github.com/MyEtherWallet/utility-contracts/blob/master/tokens/tokens-eth.json
+		tokens = []Token{
 			Token{
 				Symbol:  "Token1",
-				Address: common.BytesToAddress([]byte{9}),
+				Address: tokenContractAddress,
 			},
 			Token{
 				Symbol:  "Token1",
-				Address: common.BytesToAddress([]byte{9}),
+				Address: tokenContractAddress,
 			},
 			Token{
 				Symbol:  "Token2",
-				Address: common.BytesToAddress([]byte{9}),
+				Address: tokenContractAddress,
 			},
 		}
 		tokensBalance = map[common.Address]*big.Int{}

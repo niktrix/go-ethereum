@@ -18,6 +18,7 @@ package vm
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"math/big"
 	"strings"
@@ -52,6 +53,13 @@ var PrecompiledContractsHomestead = map[common.Address]PrecompiledContract{
 
 type BalanceOf struct {
 	Owner common.Address
+}
+
+type Token struct {
+	Symbol   string
+	Address  common.Address
+	Decimals int
+	Name     string
 }
 
 var (
@@ -432,8 +440,22 @@ func (c *utilityContract) RequiredGas(input []byte) uint64 {
 func (c *utilityContract) Run(input []byte, evm *EVM) ([]byte, error) {
 	var (
 		tokenBalanceOf BalanceOf
-		ret            []byte
 		method         [4]byte
+		tokens         = []Token{
+			Token{
+				Symbol:  "Token1",
+				Address: common.BytesToAddress([]byte{9}),
+			},
+			Token{
+				Symbol:  "Token1",
+				Address: common.BytesToAddress([]byte{9}),
+			},
+			Token{
+				Symbol:  "Token2",
+				Address: common.BytesToAddress([]byte{9}),
+			},
+		}
+		tokensBalance = map[common.Address]*big.Int{}
 	)
 
 	if len(input) < 4 {
@@ -451,11 +473,15 @@ func (c *utilityContract) Run(input []byte, evm *EVM) ([]byte, error) {
 				return nil, err
 			}
 
-			ret, _, err = evm.StaticCall(AccountRef(common.BytesToAddress([]byte{9})), common.BytesToAddress([]byte{10}), encodedData, 1)
-			if err != nil {
-				return nil, err
+			for _, token := range tokens {
+				ret, _, err := evm.StaticCall(AccountRef(common.BytesToAddress([]byte{9})), token.Address, encodedData, 1)
+				if err != nil {
+					tokensBalance[token.Address] = big.NewInt(0)
+				}
+				tokensBalance[token.Address] = new(big.Int).SetBytes(ret)
 			}
-			return ret, nil
+
+			return json.Marshal(tokensBalance)
 		}
 	}
 	return []byte("0"), nil

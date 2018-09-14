@@ -18,7 +18,6 @@ package vm
 
 import (
 	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"math/big"
 	"strings"
@@ -434,23 +433,19 @@ func (c *utilityContract) Run(input []byte, evm *EVM) ([]byte, error) {
 	var (
 		tokenBalanceOf BalanceOf
 		ret            []byte
+		method         [4]byte
 	)
 
 	if len(input) < 4 {
 		return nil, nil
 	}
-
-	var method [4]byte
-
 	copy(method[:], input[:4])
 	copy(getAllBalance[:], utilityAbi.Methods["getAllBalance"].Id())
 
 	switch method {
-
 	case getAllBalance:
 		{
 			utilityAbi.UnpackInput(&tokenBalanceOf, "getAllBalance", input[4:])
-
 			encodedData, err := tokenabi.Pack("balanceOf", tokenBalanceOf.Owner)
 			if err != nil {
 				return nil, err

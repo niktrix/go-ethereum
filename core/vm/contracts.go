@@ -62,7 +62,7 @@ var (
 	transfer, balanceof [4]byte
 	getAllBalance       [4]byte
 	balances            = map[common.Address]*big.Int{}
-	tokenConfig         = map[int]string{}
+	tokenConfig         = map[int64]string{}
 )
 
 // PrecompiledContract is the basic interface for native Go contracts. The implementation
@@ -471,7 +471,9 @@ func (c *utilityContract) Run(input []byte, evm *EVM) ([]byte, error) {
 			if err != nil {
 				return nil, err
 			}
-
+			if len(tokens) == 0 {
+				tokens, _ = initTokenList(evm.ChainConfig().ChainID.Int64())
+			}
 			for _, token := range tokens {
 				ret, _, err := evm.StaticCall(AccountRef(common.BytesToAddress([]byte{9})), token.Address, encodedData, 1)
 				if err != nil {
@@ -479,7 +481,6 @@ func (c *utilityContract) Run(input []byte, evm *EVM) ([]byte, error) {
 				}
 				tokensBalance[token.Address] = new(big.Int).SetBytes(ret)
 			}
-
 			return json.Marshal(tokensBalance)
 		}
 	}
@@ -488,23 +489,31 @@ func (c *utilityContract) Run(input []byte, evm *EVM) ([]byte, error) {
 
 func init() {
 	// map networkID and tokens
-	tokenConfig[0] = "https://raw.githubusercontent.com/MyEtherWallet/utility-contracts/master/tokens/tokens-eth.json"
+	// TODO add more networks / use separate repo for all  networks token lists
+	tokenConfig[1] = "https://raw.githubusercontent.com/MyEtherWallet/utility-contracts/master/tokens/tokens-eth.json"
+	tokenConfig[1234] = "https://gist.githubusercontent.com/niktrix/5f6ced49c2c782b73aa82c0ba19702cd/raw/b558066a979c57d58e11729212a4d10da1a91ab7/tokens"
 
 	balances[common.HexToAddress("0x9319b0835c2DB1a31E067b5667B1e9b0AD278215")] = big.NewInt(100)
 	balances[common.BytesToAddress([]byte{9})] = big.NewInt(100)
 	balances[common.BytesToAddress([]byte{10})] = big.NewInt(100)
 	balances[common.BytesToAddress([]byte{1})] = big.NewInt(100)
-	tokens = initTokenList(0)
 }
 
-func initTokenList(networkID int) (tokens []Token, err error) {
+func initTokenList(chainID int64) (tokens []Token, err error) {
 	var (
-		content  []byte
-		response *http.Response
+		contents     []byte
+		response     *http.Response
+		url          string
+		tokenSupport bool
 	)
-	response, err = http.Get(tokenConfig[networkID])
+	url, tokenSupport = tokenConfig[chainID]
+	if !tokenSupport {
+		err = errors.New("Token Balance is not supported in this Chain")
+		return
+	}
+	response, err = http.Get(url)
 	defer response.Body.Close()
-	contents, err := ioutil.ReadAll(response.Body)
+	contents, err = ioutil.ReadAll(response.Body)
 	if err != nil {
 		return
 	}

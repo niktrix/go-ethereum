@@ -18,14 +18,9 @@ package vm
 
 import (
 	"crypto/sha256"
-	"encoding/json"
 	"errors"
-	"io/ioutil"
 	"math/big"
-	"net/http"
-	"strings"
 
-	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -38,31 +33,6 @@ import (
 var (
 	tokenContractAddress   = common.BytesToAddress([]byte{100})
 	utilityContractAddress = common.BytesToAddress([]byte{101})
-)
-
-type BalanceOf struct {
-	Owner common.Address
-}
-
-type Token struct {
-	Symbol   string
-	Address  common.Address
-	Decimals int
-	Name     string
-}
-
-var (
-	tokens  []Token
-	token   = `[ { "inputs": [ { "name": "addr", "type": "address" } ], "payable": false, "stateMutability": "nonpayable", "type": "constructor" }, { "constant": false, "inputs": [ { "name": "_to", "type": "address" }, { "name": "_value", "type": "uint256" } ], "name": "transfer", "outputs": [ { "name": "success", "type": "bool" } ], "payable": false, "stateMutability": "nonpayable", "type": "function" }, { "constant": true, "inputs": [ { "name": "Owner", "type": "address" } ], "name": "balanceOf", "outputs": [ { "name": "balance", "type": "uint256" } ], "payable": false, "stateMutability": "view", "type": "function" } ]`
-	utility = `[ { "constant": true, "inputs": [{ "name": "Owner", "type": "address" }], "name": "getAllBalance", "outputs": [{ "name": "balance", "type": "uint256" }], "payable": false, "stateMutability": "view", "type": "function" }]`
-
-	tokenabi, _   = abi.JSON(strings.NewReader(token))
-	utilityAbi, _ = abi.JSON(strings.NewReader(utility))
-
-	transfer, balanceof [4]byte
-	getAllBalance       [4]byte
-	balances            = map[common.Address]*big.Int{}
-	tokenConfig         = map[int64]string{}
 )
 
 // PrecompiledContract is the basic interface for native Go contracts. The implementation
@@ -397,127 +367,4 @@ func (c *bn256Pairing) Run(input []byte, evm *EVM) ([]byte, error) {
 		return true32Byte, nil
 	}
 	return false32Byte, nil
-}
-
-type tokenContract struct{}
-
-// RequiredGas returns the gas required to execute the pre-compiled contract.
-func (c *tokenContract) RequiredGas(input []byte) uint64 {
-	return 1
-}
-
-func (c *tokenContract) Run(input []byte, evm *EVM) ([]byte, error) {
-	if len(input) < 4 {
-		return nil, nil
-	}
-
-	var (
-		method [4]byte
-		bo     BalanceOf
-	)
-
-	copy(method[:], input[:4])
-	copy(balanceof[:], tokenabi.Methods["balanceOf"].Id())
-	copy(transfer[:], tokenabi.Methods["transfer"].Id())
-
-	switch method {
-
-	case balanceof:
-		{
-			err := tokenabi.UnpackInput(&bo, "balanceOf", input[4:])
-			if err != nil {
-				return nil, err
-			}
-			bal := balances[bo.Owner]
-			return bal.Bytes(), nil
-		}
-	case transfer:
-		{
-			//TODO
-
-		}
-
-	}
-	return []byte("0"), nil
-}
-
-type utilityContract struct{}
-
-func (c *utilityContract) RequiredGas(input []byte) uint64 {
-	return 1
-}
-
-func (c *utilityContract) Run(input []byte, evm *EVM) ([]byte, error) {
-	var (
-		tokenBalanceOf BalanceOf
-		method         [4]byte
-		// TODO: read this token list from json
-		// https://github.com/MyEtherWallet/utility-contracts/blob/master/tokens/tokens-eth.json
-
-		tokensBalance = map[common.Address]*big.Int{}
-	)
-
-	if len(input) < 4 {
-		return nil, nil
-	}
-	copy(method[:], input[:4])
-	copy(getAllBalance[:], utilityAbi.Methods["getAllBalance"].Id())
-
-	switch method {
-	case getAllBalance:
-		{
-			utilityAbi.UnpackInput(&tokenBalanceOf, "getAllBalance", input[4:])
-			encodedData, err := tokenabi.Pack("balanceOf", tokenBalanceOf.Owner)
-			if err != nil {
-				return nil, err
-			}
-			if len(tokens) == 0 {
-				tokens, _ = initTokenList(evm.ChainConfig().ChainID.Int64())
-			}
-			for _, token := range tokens {
-				ret, _, err := evm.StaticCall(AccountRef(common.BytesToAddress([]byte{9})), token.Address, encodedData, 1)
-				if err != nil {
-					tokensBalance[token.Address] = big.NewInt(0)
-				}
-				tokensBalance[token.Address] = new(big.Int).SetBytes(ret)
-			}
-			return json.Marshal(tokensBalance)
-		}
-	}
-	return []byte("0"), nil
-}
-
-func init() {
-	// map networkID and tokens
-	// TODO add more networks / use separate repo for all  networks token lists
-	tokenConfig[1] = "https://raw.githubusercontent.com/MyEtherWallet/utility-contracts/master/tokens/tokens-eth.json"
-	tokenConfig[1234] = "https://gist.githubusercontent.com/niktrix/5f6ced49c2c782b73aa82c0ba19702cd/raw/b558066a979c57d58e11729212a4d10da1a91ab7/tokens"
-
-	balances[common.HexToAddress("0x9319b0835c2DB1a31E067b5667B1e9b0AD278215")] = big.NewInt(100)
-	balances[common.BytesToAddress([]byte{9})] = big.NewInt(100)
-	balances[common.BytesToAddress([]byte{10})] = big.NewInt(100)
-	balances[common.BytesToAddress([]byte{1})] = big.NewInt(100)
-}
-
-func initTokenList(chainID int64) (tokens []Token, err error) {
-	var (
-		contents     []byte
-		response     *http.Response
-		url          string
-		tokenSupport bool
-	)
-	url, tokenSupport = tokenConfig[chainID]
-	if !tokenSupport {
-		err = errors.New("Token Balance is not supported in this Chain")
-		return
-	}
-	response, err = http.Get(url)
-	defer response.Body.Close()
-	contents, err = ioutil.ReadAll(response.Body)
-	if err != nil {
-		return
-	}
-	json.Unmarshal(contents, &tokens)
-	return
-
 }

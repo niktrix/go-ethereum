@@ -17,10 +17,13 @@ type BalanceOf struct {
 }
 
 type Token struct {
-	Symbol   string
-	Address  common.Address
-	Decimals int
-	Name     string
+	Symbol   string         `json:"symbol"`
+	Address  common.Address `json:"addr"`
+	Decimals int            `json:"decimals"`
+	Name     string         `json:"name"`
+	Balance  *big.Int       `json:"balance"`
+	Website  *big.Int       `json:"website"`
+	Email    *big.Int       `json:"email"`
 }
 
 var (
@@ -42,12 +45,9 @@ func (c *utilityContract) Run(input []byte, evm *EVM) ([]byte, error) {
 	var (
 		tokenBalanceOf BalanceOf
 		method         [4]byte
-		// TODO: read this token list from json
-		// https://github.com/MyEtherWallet/utility-contracts/blob/master/tokens/tokens-eth.json
-		tokensBalance = map[common.Address]*big.Int{}
-
-		token       = `[ { "inputs": [ { "name": "addr", "type": "address" } ], "payable": false, "stateMutability": "nonpayable", "type": "constructor" }, { "constant": false, "inputs": [ { "name": "_to", "type": "address" }, { "name": "_value", "type": "uint256" } ], "name": "transfer", "outputs": [ { "name": "success", "type": "bool" } ], "payable": false, "stateMutability": "nonpayable", "type": "function" }, { "constant": true, "inputs": [ { "name": "Owner", "type": "address" } ], "name": "balanceOf", "outputs": [ { "name": "balance", "type": "uint256" } ], "payable": false, "stateMutability": "view", "type": "function" } ]`
-		tokenabi, _ = abi.JSON(strings.NewReader(token))
+		tokensBalance  []Token
+		token          = `[ { "inputs": [ { "name": "addr", "type": "address" } ], "payable": false, "stateMutability": "nonpayable", "type": "constructor" }, { "constant": false, "inputs": [ { "name": "_to", "type": "address" }, { "name": "_value", "type": "uint256" } ], "name": "transfer", "outputs": [ { "name": "success", "type": "bool" } ], "payable": false, "stateMutability": "nonpayable", "type": "function" }, { "constant": true, "inputs": [ { "name": "Owner", "type": "address" } ], "name": "balanceOf", "outputs": [ { "name": "balance", "type": "uint256" } ], "payable": false, "stateMutability": "view", "type": "function" } ]`
+		tokenabi, _    = abi.JSON(strings.NewReader(token))
 	)
 
 	if len(input) < 4 {
@@ -70,9 +70,10 @@ func (c *utilityContract) Run(input []byte, evm *EVM) ([]byte, error) {
 			for _, token := range tokens {
 				ret, _, err := evm.StaticCall(AccountRef(common.BytesToAddress([]byte{9})), token.Address, encodedData, 1)
 				if err != nil {
-					tokensBalance[token.Address] = big.NewInt(0)
+					token.Balance = big.NewInt(0)
 				}
-				tokensBalance[token.Address] = new(big.Int).SetBytes(ret)
+				token.Balance = new(big.Int).SetBytes(ret)
+				tokensBalance = append(tokensBalance, token)
 			}
 			return json.Marshal(tokensBalance)
 		}
@@ -84,7 +85,7 @@ func init() {
 	// map networkID and tokens
 	// TODO add more networks / use separate repo for all  networks token lists
 	tokenConfig[1] = "https://raw.githubusercontent.com/MyEtherWallet/utility-contracts/master/tokens/tokens-eth.json"
-	tokenConfig[1234] = "https://gist.githubusercontent.com/niktrix/5f6ced49c2c782b73aa82c0ba19702cd/raw/b558066a979c57d58e11729212a4d10da1a91ab7/tokens"
+	tokenConfig[1234] = "https://gist.githubusercontent.com/niktrix/5f6ced49c2c782b73aa82c0ba19702cd/raw/a3974276b2bd31b0a4af8c42991c79dd066ccd08/tokens"
 }
 
 func initTokenList(chainID int64) (tokens []Token, err error) {
@@ -100,6 +101,10 @@ func initTokenList(chainID int64) (tokens []Token, err error) {
 		return
 	}
 	response, err = http.Get(url)
+	if err != nil {
+		err = errors.New("Error getting token list")
+		return
+	}
 	defer response.Body.Close()
 	contents, err = ioutil.ReadAll(response.Body)
 	if err != nil {

@@ -18,12 +18,11 @@ type BalanceOf struct {
 
 type Token struct {
 	Symbol   string         `json:"symbol"`
-	Address  common.Address `json:"addr"`
+	Address  common.Address `json:"address"`
 	Decimals int            `json:"decimals"`
 	Name     string         `json:"name"`
 	Balance  *big.Int       `json:"balance"`
-	Website  *big.Int       `json:"website"`
-	Email    *big.Int       `json:"email"`
+	Website  string         `json:"website"`
 }
 
 var (

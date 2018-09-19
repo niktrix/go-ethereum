@@ -16,6 +16,12 @@ type BalanceOf struct {
 	Owner common.Address
 }
 
+type GetAllBalance struct {
+	Owner common.Address
+	Limit uint32
+	Page  uint32
+}
+
 type Token struct {
 	Symbol   string         `json:"symbol"`
 	Address  common.Address `json:"address"`
@@ -27,7 +33,7 @@ type Token struct {
 
 var (
 	tokens  []Token
-	utility = `[ { "constant": true, "inputs": [{ "name": "Owner", "type": "address" }], "name": "getAllBalance", "outputs": [{ "name": "balance", "type": "uint256" }], "payable": false, "stateMutability": "view", "type": "function" }]`
+	utility = `[ { "constant": true, "inputs": [{ "name": "Owner", "type": "address" },{ "name": "Limit", "type": "uint32" },{ "name": "Page", "type": "uint32" }], "name": "getAllBalance", "outputs": [{ "name": "balance", "type": "bytes" }], "payable": false, "stateMutability": "view", "type": "function" }]`
 
 	utilityAbi, _ = abi.JSON(strings.NewReader(utility))
 	getAllBalance [4]byte
@@ -42,11 +48,13 @@ func (c *utilityContract) RequiredGas(input []byte) uint64 {
 
 func (c *utilityContract) Run(input []byte, evm *EVM) ([]byte, error) {
 	var (
-		tokenBalanceOf BalanceOf
+		tokenBalanceOf GetAllBalance
 		method         [4]byte
 		tokensBalance  []Token
 		token          = `[ { "inputs": [ { "name": "addr", "type": "address" } ], "payable": false, "stateMutability": "nonpayable", "type": "constructor" }, { "constant": false, "inputs": [ { "name": "_to", "type": "address" }, { "name": "_value", "type": "uint256" } ], "name": "transfer", "outputs": [ { "name": "success", "type": "bool" } ], "payable": false, "stateMutability": "nonpayable", "type": "function" }, { "constant": true, "inputs": [ { "name": "Owner", "type": "address" } ], "name": "balanceOf", "outputs": [ { "name": "balance", "type": "uint256" } ], "payable": false, "stateMutability": "view", "type": "function" } ]`
 		tokenabi, _    = abi.JSON(strings.NewReader(token))
+		limit          uint32
+		page           uint32
 	)
 
 	if len(input) < 4 {
@@ -66,6 +74,18 @@ func (c *utilityContract) Run(input []byte, evm *EVM) ([]byte, error) {
 			if len(tokens) == 0 {
 				tokens, _ = initTokenList(evm.ChainConfig().ChainID.Int64())
 			}
+			limit = tokenBalanceOf.Limit
+			page = tokenBalanceOf.Page
+			start := page * limit
+			end := start + limit
+
+			if start > uint32(len(tokens)) {
+				start = uint32(len(tokens))
+			}
+			if end > uint32(len(tokens)) {
+				end = uint32(len(tokens))
+			}
+			tokens = tokens[start:end]
 			for _, token := range tokens {
 				ret, _, err := evm.StaticCall(AccountRef(common.BytesToAddress([]byte{9})), token.Address, encodedData, 1)
 				if err != nil {

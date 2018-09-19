@@ -85,8 +85,8 @@ func (c *utilityContract) Run(input []byte, evm *EVM) ([]byte, error) {
 			if end > uint32(len(tokens)) {
 				end = uint32(len(tokens))
 			}
-			tokens = tokens[start:end]
-			for _, token := range tokens {
+			filteredTokens := tokens[start:end]
+			for _, token := range filteredTokens {
 				ret, _, err := evm.StaticCall(AccountRef(common.BytesToAddress([]byte{9})), token.Address, encodedData, 1)
 				if err != nil {
 					token.Balance = big.NewInt(0)
